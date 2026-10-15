@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary-teal: #087F8C;
+  --color-deep-teal: #153B46;
+  --color-white: #FFFFFF;
+  --color-pale-teal: #E8F7F5;
+  --color-cool-grey: #F4F7F8;
+  --color-primary-text: #1B2730;
+  --color-secondary-text: #61717A;
+  --color-border: #DCE5E8;
+  --color-success: #18794E;
+  --color-warning: #A86400;
+  --color-critical: #B42318;
+}
+
+/* Custom base typography & focus styles */
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--color-primary-text);
+  background-color: var(--color-cool-grey);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular numbers for accurate metric, score and date alignments */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accessible focus ring across all interactive controls */
+:focus-visible {
+  outline: 2px solid var(--color-primary-teal);
+  outline-offset: 2px;
+}
+
+/* Prevent horizontal overflow on small displays */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Smooth transitions respecting reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,169 @@
+import { UserRole } from '../models/user.model';
+
+export type Permission =
+  | 'AUTH_READ'
+  | 'AUTH_MANAGE'
+  | 'USER_READ'
+  | 'USER_MANAGE'
+  | 'REVIEW_READ'
+  | 'REVIEW_EXECUTE'
+  | 'REVIEW_ASSIGN'
+  | 'REVIEW_ADJUDICATE'
+  | 'FEEDBACK_READ'
+  | 'FEEDBACK_SUBMIT'
+  | 'FEEDBACK_APPROVE'
+  | 'EVALUATION_EXECUTE'
+  | 'EVALUATION_READ'
+  | 'ANALYTICS_READ'
+  | 'SYSTEM_ADMIN'
+  | 'DOCUMENT_READ'
+  | 'DOCUMENT_UPLOAD'
+  | 'DOCUMENT_DELETE'
+  | 'DOCUMENT_DOWNLOAD'
+  | 'POLICY_READ'
+  | 'POLICY_MANAGE'
+  | 'DECISION_READ'
+  | 'DECISION_EXECUTE'
+  | 'TRANSFORMATION_READ'
+  | 'TRANSFORMATION_EXECUTE'
+  | 'SANITY_READ'
+  | 'SANITY_EXECUTE'
+  | 'RISK_READ'
+  | 'RISK_EXECUTE'
+  | 'VERIFICATION_READ'
+  | 'VERIFICATION_EXECUTE';
+
+export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+  USER: [
+    'AUTH_READ',
+    'USER_READ',
+    'DOCUMENT_READ',
+    'DOCUMENT_UPLOAD',
+    'DOCUMENT_DOWNLOAD',
+    'POLICY_READ',
+    'DECISION_READ',
+    'TRANSFORMATION_READ',
+    'SANITY_READ',
+    'RISK_READ',
+    'VERIFICATION_READ',
+  ],
+  REVIEWER: [
+    'AUTH_READ',
+    'USER_READ',
+    'REVIEW_READ',
+    'REVIEW_EXECUTE',
+    'FEEDBACK_READ',
+    'FEEDBACK_SUBMIT',
+    'EVALUATION_READ',
+    'DOCUMENT_READ',
+    'DOCUMENT_UPLOAD',
+    'DOCUMENT_DOWNLOAD',
+    'POLICY_READ',
+    'DECISION_READ',
+    'DECISION_EXECUTE',
+    'TRANSFORMATION_READ',
+    'TRANSFORMATION_EXECUTE',
+    'SANITY_READ',
+    'SANITY_EXECUTE',
+    'RISK_READ',
+    'RISK_EXECUTE',
+    'VERIFICATION_READ',
+    'VERIFICATION_EXECUTE',
+  ],
+  ANALYST: [
+    'AUTH_READ',
+    'USER_READ',
+    'REVIEW_READ',
+    'FEEDBACK_READ',
+    'EVALUATION_READ',
+    'ANALYTICS_READ',
+    'DOCUMENT_READ',
+    'DOCUMENT_DOWNLOAD',
+    'POLICY_READ',
+    'DECISION_READ',
+    'DECISION_EXECUTE',
+    'TRANSFORMATION_READ',
+    'TRANSFORMATION_EXECUTE',
+    'SANITY_READ',
+    'SANITY_EXECUTE',
+    'RISK_READ',
+    'RISK_EXECUTE',
+    'VERIFICATION_READ',
+    'VERIFICATION_EXECUTE',
+  ],
+  ORG_ADMIN: [
+    'AUTH_READ',
+    'AUTH_MANAGE',
+    'USER_READ',
+    'USER_MANAGE',
+    'REVIEW_READ',
+    'REVIEW_EXECUTE',
+    'REVIEW_ASSIGN',
+    'REVIEW_ADJUDICATE',
+    'FEEDBACK_READ',
+    'FEEDBACK_SUBMIT',
+    'FEEDBACK_APPROVE',
+    'EVALUATION_EXECUTE',
+    'EVALUATION_READ',
+    'ANALYTICS_READ',
+    'DOCUMENT_READ',
+    'DOCUMENT_UPLOAD',
+    'DOCUMENT_DELETE',
+    'DOCUMENT_DOWNLOAD',
+    'POLICY_READ',
+    'POLICY_MANAGE',
+    'DECISION_READ',
+    'DECISION_EXECUTE',
+    'TRANSFORMATION_READ',
+    'TRANSFORMATION_EXECUTE',
+    'SANITY_READ',
+    'SANITY_EXECUTE',
+    'RISK_READ',
+    'RISK_EXECUTE',
+    'VERIFICATION_READ',
+    'VERIFICATION_EXECUTE',
+  ],
+  SUPER_ADMIN: [
+    'AUTH_READ',
+    'AUTH_MANAGE',
+    'USER_READ',
+    'USER_MANAGE',
+    'REVIEW_READ',
+    'REVIEW_EXECUTE',
+    'REVIEW_ASSIGN',
+    'REVIEW_ADJUDICATE',
+    'FEEDBACK_READ',
+    'FEEDBACK_SUBMIT',
+    'FEEDBACK_APPROVE',
+    'EVALUATION_EXECUTE',
+    'EVALUATION_READ',
+    'ANALYTICS_READ',
+    'SYSTEM_ADMIN',
+    'DOCUMENT_READ',
+    'DOCUMENT_UPLOAD',
+    'DOCUMENT_DELETE',
+    'DOCUMENT_DOWNLOAD',
+    'POLICY_READ',
+    'POLICY_MANAGE',
+    'DECISION_READ',
+    'DECISION_EXECUTE',
+    'TRANSFORMATION_READ',
+    'TRANSFORMATION_EXECUTE',
+    'SANITY_READ',
+    'SANITY_EXECUTE',
+    'RISK_READ',
+    'RISK_EXECUTE',
+    'VERIFICATION_READ',
+    'VERIFICATION_EXECUTE',
+  ],
+};
+
+export const hasPermission = (userRole: UserRole, requiredPermission: Permission): boolean => {
+  const permissions = ROLE_PERMISSIONS[userRole] || [];
+  return permissions.includes(requiredPermission);
+};
+
+export const hasAllPermissions = (userRole: UserRole, requiredPermissions: Permission[]): boolean => {
+  const permissions = ROLE_PERMISSIONS[userRole] || [];
+  return requiredPermissions.every((perm) => permissions.includes(perm));
+};

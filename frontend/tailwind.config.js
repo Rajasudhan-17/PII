@@ -1,0 +1,60 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        brand: {
+          teal: '#087F8C',
+          'teal-dark': '#066570',
+          'teal-light': '#0A9CB0',
+          'deep-teal': '#153B46',
+          'pale-teal': '#E8F7F5',
+        },
+        surface: {
+          white: '#FFFFFF',
+          cool: '#F4F7F8',
+          card: '#FFFFFF',
+          hover: '#EEF3F5',
+          border: '#DCE5E8',
+        },
+        text: {
+          primary: '#1B2730',
+          secondary: '#61717A',
+          muted: '#8A99A2',
+        },
+        status: {
+          success: '#18794E',
+          'success-bg': '#EDF8F2',
+          'success-border': '#B7E2CE',
+          warning: '#A86400',
+          'warning-bg': '#FEF7ED',
+          'warning-border': '#FCD9A8',
+          critical: '#B42318',
+          'critical-bg': '#FEF3F2',
+          'critical-border': '#FECDCA',
+          info: '#087F8C',
+          'info-bg': '#E8F7F5',
+          'info-border': '#B3E8E3',
+        },
+      },
+      fontFamily: {
+        sans: [
+          'Inter',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"Segoe UI"',
+          'Roboto',
+          'sans-serif',
+        ],
+      },
+      boxShadow: {
+        subtle: '0 1px 2px 0 rgba(21, 59, 70, 0.05)',
+        card: '0 1px 3px 0 rgba(21, 59, 70, 0.08), 0 1px 2px -1px rgba(21, 59, 70, 0.06)',
+        dropdown: '0 4px 6px -1px rgba(21, 59, 70, 0.1), 0 2px 4px -2px rgba(21, 59, 70, 0.08)',
+        modal: '0 10px 15px -3px rgba(21, 59, 70, 0.12), 0 4px 6px -4px rgba(21, 59, 70, 0.08)',
+      },
+    },
+  },
+  plugins: [],
+};
