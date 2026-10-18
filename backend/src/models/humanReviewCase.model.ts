@@ -8,7 +8,7 @@ export type ReviewCaseType =
   | 'CAPABILITY_UNAVAILABLE'
   | 'MANUAL_REQUEST';
 
-export type ReviewCasePriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+export type ReviewCasePriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' | 'CRITICAL';
 export type ReviewCaseSeverity = 'INFO' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export type ReviewCaseStatus =
@@ -104,7 +104,7 @@ const humanReviewCaseSchema = new Schema<IHumanReviewCase>(
     },
     priority: {
       type: String,
-      enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'],
+      enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT', 'CRITICAL'],
       default: 'MEDIUM',
       required: true,
     },

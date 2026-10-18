@@ -16,7 +16,9 @@ export type DocumentStatus =
   | 'OCR_FAILED'
   | 'ENCRYPTED'
   | 'REJECTED'
-  | 'DELETED';
+  | 'DELETED'
+  | 'PROCESSING'
+  | 'COMPLETED';
 
 export interface IDocument extends MongooseDocument {
   _id: mongoose.Types.ObjectId;
@@ -105,6 +107,8 @@ const documentSchema = new Schema<IDocument>(
         'ENCRYPTED',
         'REJECTED',
         'DELETED',
+        'PROCESSING',
+        'COMPLETED',
       ],
       default: 'QUARANTINED',
       required: true,
