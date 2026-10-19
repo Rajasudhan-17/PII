@@ -166,6 +166,31 @@ export const LoginPage: React.FC = () => {
                 Sign In
               </Button>
             </div>
+
+            <div className="pt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('admin@pii-platform.local');
+                  setPassword('AdminPass123!');
+                  if (error) setError(null);
+                }}
+                className="flex-1 text-[11px] font-medium py-1.5 px-2 rounded border border-brand-teal/40 bg-brand-pale-teal/40 text-brand-deep-teal hover:bg-brand-pale-teal transition-colors"
+              >
+                Use Admin Demo
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('reviewer@pii-platform.local');
+                  setPassword('ReviewerPass123!');
+                  if (error) setError(null);
+                }}
+                className="flex-1 text-[11px] font-medium py-1.5 px-2 rounded border border-surface-border bg-surface-cool text-text-secondary hover:bg-slate-200 transition-colors"
+              >
+                Use Reviewer Demo
+              </button>
+            </div>
           </form>
 
           <div className="mt-6 pt-5 border-t border-surface-border text-center">

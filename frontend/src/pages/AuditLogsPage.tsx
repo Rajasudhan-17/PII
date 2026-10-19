@@ -21,8 +21,8 @@ import {
 } from 'lucide-react';
 
 export const AuditLogsPage: React.FC = () => {
-  const { currentOrgId, hasPermission } = useAuth();
-  const activeOrgId = currentOrgId || 'org_primary';
+  const { currentOrgId, organizations, hasPermission } = useAuth();
+  const activeOrgId = currentOrgId || organizations[0]?.id || '';
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');

@@ -32,8 +32,8 @@ import { ReviewDecisionModal } from '../components/findings/ReviewDecisionModal'
 import { FileText, SearchCode, RefreshCw } from 'lucide-react';
 
 export const FindingsDecisionsPage: React.FC = () => {
-  const { currentOrgId, hasPermission } = useAuth();
-  const activeOrgId = currentOrgId || 'org_primary';
+  const { currentOrgId, organizations, hasPermission } = useAuth();
+  const activeOrgId = currentOrgId || organizations[0]?.id || '';
   const [searchParams, setSearchParams] = useSearchParams();
   const queryDocId = searchParams.get('documentId');
 
@@ -91,6 +91,7 @@ export const FindingsDecisionsPage: React.FC = () => {
 
   // Load organization documents
   const loadOrganizationDocuments = useCallback(async () => {
+    if (!activeOrgId) return;
     setIsLoadingDocuments(true);
     setErrorNotice(null);
     try {

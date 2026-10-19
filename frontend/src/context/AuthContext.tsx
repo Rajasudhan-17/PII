@@ -179,7 +179,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [organizations, setOrganizations] = useState<Organization[]>([]);
 
   const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(() => {
-    return sessionStorage.getItem(ORG_KEY) || null;
+    const saved = sessionStorage.getItem(ORG_KEY);
+    return saved && saved !== 'org_primary' && saved !== 'undefined' && saved !== 'null' ? saved : null;
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -258,7 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Initialize organizations for authenticated user
   const loadUserOrganizations = useCallback(
-    async (targetUser?: UserProfile): Promise<Organization[]> => {
+    async (_targetUser?: UserProfile): Promise<Organization[]> => {
       try {
         const res = await organizationApi.listOrganizations();
         const orgs = res.organizations || [];
@@ -266,13 +267,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // Auto-select valid organization context
         const savedOrgId = sessionStorage.getItem(ORG_KEY);
-        const activeUser = targetUser || user;
 
         if (orgs.length > 0) {
-          const isSuperAdmin = activeUser?.role === 'SUPER_ADMIN';
-          const isMemberOfSaved = orgs.some((o) => o.id === savedOrgId);
+          const isValidSaved = savedOrgId && orgs.some((o) => o.id === savedOrgId);
 
-          if (savedOrgId && (isMemberOfSaved || isSuperAdmin)) {
+          if (isValidSaved) {
             setCurrentOrgIdState(savedOrgId);
           } else {
             const defaultOrg = orgs[0].id;
@@ -285,7 +284,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return [];
       }
     },
-    [user]
+    []
   );
 
   // Session restoration on application reload

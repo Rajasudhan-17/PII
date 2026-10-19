@@ -17,8 +17,8 @@ import { Policy } from '../types/policy';
 import { Shield, Plus, RefreshCw, Hash, Search } from 'lucide-react';
 
 export const PoliciesPage: React.FC = () => {
-  const { currentOrgId, hasPermission } = useAuth();
-  const activeOrgId = currentOrgId || 'org_primary';
+  const { currentOrgId, organizations, hasPermission } = useAuth();
+  const activeOrgId = currentOrgId || organizations[0]?.id || '';
 
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,6 +44,7 @@ export const PoliciesPage: React.FC = () => {
 
   // Load Policies from Backend
   const loadPolicies = useCallback(async () => {
+    if (!activeOrgId) return;
     const currentGen = ++fetchGenerationRef.current;
     const targetOrg = activeOrgId;
 

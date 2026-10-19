@@ -44,8 +44,8 @@ interface DecisionSummaryData {
 }
 
 export const DashboardPage: React.FC = () => {
-  const { user, currentOrgId, hasPermission } = useAuth();
-  const activeOrgId = currentOrgId || 'org_primary';
+  const { user, currentOrgId, organizations, hasPermission } = useAuth();
+  const activeOrgId = currentOrgId || organizations[0]?.id || '';
 
   // State
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -66,6 +66,11 @@ export const DashboardPage: React.FC = () => {
 
   // Load Dashboard Data with Race Condition & Stale Tenant Guards
   const loadDashboardData = useCallback(async (isManualRefresh = false) => {
+    if (!activeOrgId) {
+      setIsLoading(false);
+      return;
+    }
+
     const currentGen = ++fetchGenerationRef.current;
     if (isManualRefresh) setIsRefreshing(true);
     else setIsLoading(true);

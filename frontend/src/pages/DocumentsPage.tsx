@@ -64,8 +64,8 @@ const STATUS_OPTIONS = [
 ];
 
 export const DocumentsPage: React.FC = () => {
-  const { currentOrgId, hasPermission } = useAuth();
-  const activeOrgId = currentOrgId || 'org_primary';
+  const { currentOrgId, organizations, hasPermission } = useAuth();
+  const activeOrgId = currentOrgId || organizations[0]?.id || '';
 
   // Core document state
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -103,6 +103,8 @@ export const DocumentsPage: React.FC = () => {
   // Load documents with tenant validation & stale-response discard
   const loadDocuments = useCallback(
     async (isBackground = false) => {
+      if (!activeOrgId) return;
+
       const currentGen = ++fetchGenerationRef.current;
       const targetOrgId = activeOrgId;
 

@@ -23,8 +23,8 @@ import {
 } from 'lucide-react';
 
 export const HumanReviewPage: React.FC = () => {
-  const { currentOrgId, user, hasPermission } = useAuth();
-  const activeOrgId = currentOrgId || 'org_primary';
+  const { currentOrgId, organizations, user, hasPermission } = useAuth();
+  const activeOrgId = currentOrgId || organizations[0]?.id || '';
 
   const [cases, setCases] = useState<HumanReviewCase[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -54,7 +54,10 @@ export const HumanReviewPage: React.FC = () => {
 
   // Load Review Queue from Backend
   const loadReviewQueue = useCallback(async () => {
-    if (!hasPermission('REVIEW_READ')) return;
+    if (!activeOrgId || !hasPermission('REVIEW_READ')) {
+      setIsLoading(false);
+      return;
+    }
 
     const currentGen = ++fetchGenerationRef.current;
     const targetOrg = activeOrgId;

@@ -8,7 +8,7 @@ import { Cpu, User, Activity, ArrowRight, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const SettingsPage: React.FC = () => {
-  const { user, currentOrgId } = useAuth();
+  const { user, currentOrgId, organizations } = useAuth();
 
   return (
     <div className="space-y-6">
@@ -55,7 +55,7 @@ export const SettingsPage: React.FC = () => {
               </div>
               <div className="flex items-center justify-between py-1.5">
                 <span className="text-text-secondary">Active Tenant:</span>
-                <span className="font-mono font-medium text-brand-deep-teal">{currentOrgId || 'org_primary'}</span>
+                <span className="font-mono font-medium text-brand-deep-teal">{currentOrgId || organizations[0]?.name || organizations[0]?.id || 'No Tenant'}</span>
               </div>
             </div>
           </CardContent>

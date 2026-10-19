@@ -17,8 +17,8 @@ import { RiskAssessmentView } from '../components/findings/RiskAssessmentView';
 import { CheckCircle2, RefreshCw } from 'lucide-react';
 
 export const RiskVerificationPage: React.FC = () => {
-  const { currentOrgId } = useAuth();
-  const activeOrgId = currentOrgId || 'org_primary';
+  const { currentOrgId, organizations } = useAuth();
+  const activeOrgId = currentOrgId || organizations[0]?.id || '';
 
   const [activeTab, setActiveTab] = useState('verification');
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -44,6 +44,7 @@ export const RiskVerificationPage: React.FC = () => {
   }, [activeOrgId]);
 
   const loadDocuments = useCallback(async () => {
+    if (!activeOrgId) return;
     setIsLoadingDocuments(true);
     setErrorNotice(null);
     try {
