@@ -2,6 +2,99 @@ import AdmZip from 'adm-zip';
 import crypto from 'crypto';
 import { ITransformationEngine, TransformationEngineOptions, EngineTransformationResult } from './base.engine';
 
+/**
+ * Redacts a target text from PowerPoint slide XML, handling cases where the text
+ * is continuous or split across multiple <a:r><a:t> runs in <a:p> paragraphs.
+ */
+export function redactPptxXml(
+  xml: string,
+  targetText: string,
+  replacementText: string
+): { xml: string; matched: boolean } {
+  let modifiedXml = xml;
+  let matched = false;
+
+  // 1. Direct match
+  if (modifiedXml.includes(targetText)) {
+    const safeRegexp = new RegExp(targetText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    modifiedXml = modifiedXml.replace(safeRegexp, replacementText);
+    return { xml: modifiedXml, matched: true };
+  }
+
+  // 2. Cross-run match within PowerPoint paragraphs (<a:p>)
+  const pRegex = /(<a:p\b[^>]*>[\s\S]*?<\/a:p>)/g;
+  modifiedXml = modifiedXml.replace(pRegex, (pXml) => {
+    const tRegex = /(<a:t\b[^>]*>)([\s\S]*?)(<\/a:t>)/g;
+    const runs: Array<{ fullMatch: string; prefix: string; text: string; suffix: string; start: number; end: number }> = [];
+    let aggregatedText = '';
+
+    let match: RegExpExecArray | null;
+    while ((match = tRegex.exec(pXml)) !== null) {
+      const prefix = match[1];
+      const text = match[2];
+      const suffix = match[3];
+      const start = aggregatedText.length;
+      aggregatedText += text;
+      const end = aggregatedText.length;
+
+      runs.push({
+        fullMatch: match[0],
+        prefix,
+        text,
+        suffix,
+        start,
+        end,
+      });
+    }
+
+    if (!aggregatedText.includes(targetText)) {
+      return pXml;
+    }
+
+    matched = true;
+    let targetIdx = aggregatedText.indexOf(targetText);
+    let updatedPXml = pXml;
+
+    while (targetIdx !== -1) {
+      const targetEnd = targetIdx + targetText.length;
+      let firstRunReplaced = false;
+
+      for (const run of runs) {
+        if (run.end <= targetIdx || run.start >= targetEnd) {
+          continue;
+        }
+
+        const overlapStartInRun = Math.max(0, targetIdx - run.start);
+        const overlapEndInRun = Math.min(run.text.length, targetEnd - run.start);
+
+        const before = run.text.substring(0, overlapStartInRun);
+        const after = run.text.substring(overlapEndInRun);
+
+        let newRunText = '';
+        if (!firstRunReplaced) {
+          newRunText = before + replacementText + after;
+          firstRunReplaced = true;
+        } else {
+          newRunText = before + after;
+        }
+
+        const oldTag = run.prefix + run.text + run.suffix;
+        const newTag = run.prefix + newRunText + run.suffix;
+        updatedPXml = updatedPXml.replace(oldTag, newTag);
+
+        run.text = newRunText;
+      }
+
+      aggregatedText = aggregatedText.substring(0, targetIdx) + replacementText + aggregatedText.substring(targetEnd);
+      targetIdx = aggregatedText.indexOf(targetText, targetIdx + replacementText.length);
+    }
+
+    return updatedPXml;
+  });
+
+  return { xml: modifiedXml, matched };
+}
+
 export class PptxEngine implements ITransformationEngine {
   public async transform(options: TransformationEngineOptions): Promise<EngineTransformationResult> {
     const zip = new AdmZip(options.sourceFilePath);
@@ -73,10 +166,9 @@ export class PptxEngine implements ITransformationEngine {
       for (const entry of xmlEntries) {
         let xml = entryXmlMap.get(entry.entryName) || '';
 
-        if (xml.includes(targetText)) {
-          const safeRegexp = new RegExp(targetText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-          xml = xml.replace(safeRegexp, replacementText);
-          entryXmlMap.set(entry.entryName, xml);
+        const redactRes = redactPptxXml(xml, targetText, replacementText);
+        if (redactRes.matched) {
+          entryXmlMap.set(entry.entryName, redactRes.xml);
           matchedInXml = true;
         }
       }
@@ -94,6 +186,7 @@ export class PptxEngine implements ITransformationEngine {
           syntheticValue: options.operation === 'MUTATION' ? replacementText : undefined,
         });
       } else {
+        // Check if text is present in unsupported binary entries (e.g. ppt/embeddings/ or vbaProject.bin)
         let foundInUnsupported = false;
         for (const entry of entries) {
           if (!entry.entryName.endsWith('.xml')) {
@@ -115,7 +208,7 @@ export class PptxEngine implements ITransformationEngine {
           location: c.location || {},
           failureReason: foundInUnsupported
             ? 'UNSUPPORTED_OFFICE_STRUCTURE'
-            : 'Candidate text not found in PPTX slide XML streams',
+            : 'Candidate text not found in PPTX XML streams',
         });
       }
     }
@@ -123,6 +216,17 @@ export class PptxEngine implements ITransformationEngine {
     // Write all updated XMLs back into the zip archive
     for (const [entryName, xml] of entryXmlMap.entries()) {
       zip.updateFile(entryName, Buffer.from(xml, 'utf8'));
+    }
+
+    // Security sanitization: Remove any thumbnail previews from docProps
+    for (const entry of entries) {
+      if (
+        entry.entryName.startsWith('docProps/thumbnail') ||
+        entry.entryName.endsWith('.emf') ||
+        entry.entryName.endsWith('.wmf')
+      ) {
+        zip.deleteFile(entry.entryName);
+      }
     }
 
     zip.writeZip(options.outputFilePath);

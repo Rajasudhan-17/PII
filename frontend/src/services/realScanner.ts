@@ -538,6 +538,102 @@ export function applyRedactionsToText(
   return result;
 }
 
+/**
+ * Redacts a target text from Word XML, handling cases where the text
+ * is continuous or split across multiple <w:r><w:t> runs.
+ */
+export function redactWordXml(
+  xml: string,
+  targetText: string,
+  replacementText: string
+): { xml: string; matched: boolean } {
+  let modifiedXml = xml;
+  let matched = false;
+
+  // 1. Direct match (when text is within a single <w:t> run)
+  if (modifiedXml.includes(targetText)) {
+    const safeRegexp = new RegExp(targetText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    modifiedXml = modifiedXml.replace(safeRegexp, replacementText);
+    return { xml: modifiedXml, matched: true };
+  }
+
+  // 2. Cross-run match within paragraphs (<w:p>) or table cells (<w:tc>)
+  const pRegex = /(<w:p\b[^>]*>[\s\S]*?<\/w:p>)/g;
+  modifiedXml = modifiedXml.replace(pRegex, (pXml) => {
+    // Extract all <w:t> runs within this paragraph
+    const tRegex = /(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g;
+    const runs: Array<{ fullMatch: string; prefix: string; text: string; suffix: string; start: number; end: number }> = [];
+    let aggregatedText = '';
+
+    let match: RegExpExecArray | null;
+    while ((match = tRegex.exec(pXml)) !== null) {
+      const prefix = match[1];
+      const text = match[2];
+      const suffix = match[3];
+      const start = aggregatedText.length;
+      aggregatedText += text;
+      const end = aggregatedText.length;
+
+      runs.push({
+        fullMatch: match[0],
+        prefix,
+        text,
+        suffix,
+        start,
+        end,
+      });
+    }
+
+    if (!aggregatedText.includes(targetText)) {
+      return pXml;
+    }
+
+    // Target text found spanning across runs!
+    matched = true;
+    let targetIdx = aggregatedText.indexOf(targetText);
+    let updatedPXml = pXml;
+
+    while (targetIdx !== -1) {
+      const targetEnd = targetIdx + targetText.length;
+
+      let firstRunReplaced = false;
+
+      for (const run of runs) {
+        if (run.end <= targetIdx || run.start >= targetEnd) {
+          continue;
+        }
+
+        const overlapStartInRun = Math.max(0, targetIdx - run.start);
+        const overlapEndInRun = Math.min(run.text.length, targetEnd - run.start);
+
+        const before = run.text.substring(0, overlapStartInRun);
+        const after = run.text.substring(overlapEndInRun);
+
+        let newRunText = '';
+        if (!firstRunReplaced) {
+          newRunText = before + replacementText + after;
+          firstRunReplaced = true;
+        } else {
+          newRunText = before + after;
+        }
+
+        const oldTag = run.prefix + run.text + run.suffix;
+        const newTag = run.prefix + newRunText + run.suffix;
+        updatedPXml = updatedPXml.replace(oldTag, newTag);
+
+        run.text = newRunText;
+      }
+
+      aggregatedText = aggregatedText.substring(0, targetIdx) + replacementText + aggregatedText.substring(targetEnd);
+      targetIdx = aggregatedText.indexOf(targetText, targetIdx + replacementText.length);
+    }
+
+    return updatedPXml;
+  });
+
+  return { xml: modifiedXml, matched };
+}
+
 // ── REAL DOCX REDACTION & METADATA WIPING ─────────────────────────────────────
 
 export async function generateSanitizedDocx(
@@ -573,14 +669,25 @@ export async function generateSanitizedDocx(
     if (!xml) continue;
 
     for (const item of sorted) {
-      if (xml.includes(item.value)) {
-        const replacement = getRedactionReplacement(item.value, item.label, look);
-        const safeRegex = new RegExp(item.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-        xml = xml.replace(safeRegex, replacement);
+      const replacement = getRedactionReplacement(item.value, item.label, look);
+      const redactResult = redactWordXml(xml, item.value, replacement);
+      if (redactResult.matched) {
+        xml = redactResult.xml;
       }
     }
     zip.file(name, xml);
   }
+
+  // Remove thumbnail screenshots from docProps/thumbnail.*
+  Object.keys(zip.files).forEach((filename) => {
+    if (
+      filename.startsWith('docProps/thumbnail') ||
+      filename.endsWith('.emf') ||
+      filename.endsWith('.wmf')
+    ) {
+      zip.remove(filename);
+    }
+  });
 
   return await zip.generateAsync({
     type: 'blob',

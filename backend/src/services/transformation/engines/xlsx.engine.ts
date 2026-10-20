@@ -125,6 +125,17 @@ export class XlsxEngine implements ITransformationEngine {
       zip.updateFile(entryName, Buffer.from(xml, 'utf8'));
     }
 
+    // Security sanitization: Remove any thumbnail previews from docProps
+    for (const entry of entries) {
+      if (
+        entry.entryName.startsWith('docProps/thumbnail') ||
+        entry.entryName.endsWith('.emf') ||
+        entry.entryName.endsWith('.wmf')
+      ) {
+        zip.deleteFile(entry.entryName);
+      }
+    }
+
     zip.writeZip(options.outputFilePath);
 
     return {

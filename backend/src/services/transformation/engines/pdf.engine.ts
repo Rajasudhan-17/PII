@@ -298,10 +298,41 @@ export class PdfEngine implements ITransformationEngine {
           });
         }
 
+        // 7. PDF TJ Array Operator: e.g. `[ (John) 10 (Smith) ] TJ`
+        if (!textReplaced) {
+          const tjRegex = /\[((?:[^\]\\]|\\.)*)\]\s*TJ/g;
+          st.decompressedText = st.decompressedText.replace(tjRegex, (fullMatch, arrayContent) => {
+            const innerStrings = (arrayContent.match(/\((?:[^()\\]|\\.)*\)/g) || []).map((s: string) => s.slice(1, -1));
+            const combined = innerStrings.join(' ');
+            if (combined.includes(targetText) || targetText.includes(combined)) {
+              streamModified = true;
+              textReplaced = true;
+              return `[(${replacementText})] TJ`;
+            }
+            return fullMatch;
+          });
+        }
+
         if (streamModified) {
           st.modified = true;
         }
       }
+
+      // Sanitize Annotations (/Annots) and Form Fields (/V) in contentStr
+      contentStr = contentStr.replace(/\/Contents\s*\(([^)]*)\)/g, (match, val) => {
+        if (val.includes(targetText)) {
+          textReplaced = true;
+          return `/Contents (${replacementText})`;
+        }
+        return match;
+      });
+      contentStr = contentStr.replace(/\/V\s*\(([^)]*)\)/g, (match, val) => {
+        if (val.includes(targetText)) {
+          textReplaced = true;
+          return `/V (${replacementText})`;
+        }
+        return match;
+      });
 
       // Fallback Strategy B/C/D/E: If not found in streams, try raw contentStr outside streams
       if (!textReplaced) {
