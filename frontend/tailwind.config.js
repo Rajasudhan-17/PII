@@ -4,6 +4,29 @@ export default {
   theme: {
     extend: {
       colors: {
+        redact: {
+          dark: '#111827',
+          black: '#0A0A0C',
+          slate: '#1E293B',
+          bg: '#ECEEF1',
+          card: '#FFFFFF',
+          border: '#E2E5E9',
+          yellow: '#FACC15',
+          'yellow-light': '#FEF08A',
+          'yellow-dark': '#CA8A04',
+          'yellow-badge': '#FEF3C7',
+          'yellow-text': '#92400E',
+          'green-badge': '#ECFDF5',
+          'green-text': '#065F46',
+          'green-border': '#A7F3D0',
+          'red-badge': '#FEF2F2',
+          'red-text': '#991B1B',
+          'red-border': '#FECACA',
+          'gray-badge': '#F3F4F6',
+          'gray-text': '#4B5563',
+          'gray-border': '#E5E7EB',
+          subtext: '#6B7280',
+        },
         brand: {
           teal: '#087F8C',
           'teal-dark': '#066570',
@@ -13,13 +36,13 @@ export default {
         },
         surface: {
           white: '#FFFFFF',
-          cool: '#F4F7F8',
+          cool: '#ECEEF1',
           card: '#FFFFFF',
           hover: '#EEF3F5',
           border: '#DCE5E8',
         },
         text: {
-          primary: '#1B2730',
+          primary: '#111827',
           secondary: '#61717A',
           muted: '#8A99A2',
         },

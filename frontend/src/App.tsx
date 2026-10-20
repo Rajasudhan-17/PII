@@ -1,94 +1,48 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import { AppLayout } from './components/layout/AppLayout';
-import { ProtectedRoute } from './components/auth/ProtectedRoute';
-import { DashboardPage } from './pages/DashboardPage';
-import { DocumentsPage } from './pages/DocumentsPage';
-import { FindingsDecisionsPage } from './pages/FindingsDecisionsPage';
-import { HumanReviewPage } from './pages/HumanReviewPage';
-import { PoliciesPage } from './pages/PoliciesPage';
-import { RiskVerificationPage } from './pages/RiskVerificationPage';
-import { AuditLogsPage } from './pages/AuditLogsPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { SystemHealthPage } from './pages/SystemHealthPage';
-import { LoginPage } from './pages/LoginPage';
-import { NotFoundPage } from './pages/NotFoundPage';
+import { RedactProvider } from './context/RedactContext';
+import { Navbar } from './components/redact/Navbar';
+import { NewRedactionPage } from './pages/NewRedactionPage';
+import { ReviewWorkspacePage } from './pages/ReviewWorkspacePage';
+import { VerifyExportPage } from './pages/VerifyExportPage';
+import { HistoryPage } from './pages/HistoryPage';
+import { RulesPage } from './pages/RulesPage';
 
 export const App: React.FC = () => {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          {/* Public Auth Routes */}
-          <Route path="/login" element={<LoginPage />} />
+      <RedactProvider>
+        <div className="min-h-screen bg-[#F3F4F6] text-[#111827] font-sans antialiased flex flex-col">
+          {/* Exact Top Navbar */}
+          <Navbar />
 
-          {/* Protected Application Routes inside AppLayout */}
-          <Route
-            element={
-              <ProtectedRoute>
-                <AppLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route
-              path="/documents"
-              element={
-                <ProtectedRoute requiredPermission="DOCUMENT_READ">
-                  <DocumentsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/findings"
-              element={
-                <ProtectedRoute requiredPermission="DECISION_READ">
-                  <FindingsDecisionsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/human-review"
-              element={
-                <ProtectedRoute requiredPermission="REVIEW_READ">
-                  <HumanReviewPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/policies"
-              element={
-                <ProtectedRoute requiredPermission="POLICY_READ">
-                  <PoliciesPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/verification"
-              element={
-                <ProtectedRoute requiredPermission="VERIFICATION_READ">
-                  <RiskVerificationPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/audit-logs"
-              element={
-                <ProtectedRoute requiredPermission="ANALYTICS_READ">
-                  <AuditLogsPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/system-health" element={<SystemHealthPage />} />
-          </Route>
+          {/* Main Views for the 5 requested pages */}
+          <main className="flex-1 pb-12">
+            <Routes>
+              {/* Step 1: New Redaction / Upload */}
+              <Route path="/" element={<NewRedactionPage />} />
+              <Route path="/new" element={<NewRedactionPage />} />
 
-          {/* Custom 404 Catch-All */}
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </AuthProvider>
+              {/* Step 2: Review Workspace */}
+              <Route path="/review" element={<ReviewWorkspacePage />} />
+              <Route path="/review/:id" element={<ReviewWorkspacePage />} />
+
+              {/* Step 3: Verify & Export */}
+              <Route path="/verify" element={<VerifyExportPage />} />
+              <Route path="/verify/:id" element={<VerifyExportPage />} />
+
+              {/* History */}
+              <Route path="/history" element={<HistoryPage />} />
+
+              {/* Rules */}
+              <Route path="/rules" element={<RulesPage />} />
+
+              {/* Catch-all to Home */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </main>
+        </div>
+      </RedactProvider>
     </BrowserRouter>
   );
 };
