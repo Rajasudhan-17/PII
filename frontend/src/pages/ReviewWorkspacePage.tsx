@@ -10,12 +10,13 @@ import {
   FileText,
   Crosshair,
 } from 'lucide-react';
-import { useRedact } from '../context/RedactContext';
+import { useRedact, DEFAULT_OFFER_LETTER_TEXT, FindingItem } from '../context/RedactContext';
 
 export const ReviewWorkspacePage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const {
+    documents,
     findings,
     previewMode,
     setPreviewMode,
@@ -34,6 +35,8 @@ export const ReviewWorkspacePage: React.FC = () => {
   } = useRedact();
 
   const docId = id || 'offer_letter.docx';
+  const currentDoc = documents[docId] || documents['offer_letter.docx'];
+  const docText = currentDoc?.originalText || DEFAULT_OFFER_LETTER_TEXT;
 
   // Search & Filter state in sidebar
   const [searchQuery, setSearchQuery] = useState('');
@@ -124,7 +127,7 @@ export const ReviewWorkspacePage: React.FC = () => {
   };
 
   // Helper to render redaction token based on current look
-  const renderRedactionToken = (val: string, label: string, customWidth = 'w-28') => {
+  const renderRedactionToken = (val: string, label: string) => {
     if (previewMode === 'original') {
       return <span className="font-medium text-[#111827]">{val}</span>;
     }
@@ -132,13 +135,14 @@ export const ReviewWorkspacePage: React.FC = () => {
     if (currentLook === 'label') {
       return (
         <span className="font-mono text-[10px] font-bold bg-[#111827] text-white px-1.5 py-0.5 rounded tracking-wider">
-          [{label}]
+          [{label || 'REDACTED'}]
         </span>
       );
     }
 
     if (currentLook === 'partial') {
-      const lastDigits = val.slice(-4) || '3210';
+      const clean = val.replace(/\s+/g, '');
+      const lastDigits = clean.slice(-4) || '••••';
       return (
         <span className="font-mono text-xs font-semibold text-[#111827] bg-[#F3F4F6] px-1.5 py-0.5 rounded border border-[#E5E7EB]">
           •••• {lastDigits}
@@ -150,14 +154,127 @@ export const ReviewWorkspacePage: React.FC = () => {
     return (
       <span
         title={val}
-        className={`inline-block bg-[#111827] rounded-[2px] h-4 align-middle ${customWidth}`}
-      />
+        className="inline-block bg-[#111827] rounded-[2px] h-4 align-middle px-1 text-transparent select-none cursor-pointer"
+      >
+        {'█'.repeat(Math.max(val.length, 6))}
+      </span>
     );
   };
 
-  // Finding status check for interactive rendering in document text
-  const isNorthwindRedacted = findings.find((f) => f.id === 'finding_northwind')?.status === 'redact';
-  const isArunRedacted = findings.find((f) => f.id === 'finding_arun')?.status === 'redact';
+  // Helper to render a paragraph with dynamic inline findings
+  const renderParagraph = (line: string, lineIndex: number) => {
+    if (!line.trim()) {
+      return <div key={lineIndex} className="h-4" />;
+    }
+
+    // Collect all matches of findings in this line
+    interface SpanMatch {
+      start: number;
+      end: number;
+      finding: FindingItem;
+    }
+
+    const matches: SpanMatch[] = [];
+    for (const f of findings) {
+      if (!f.value || f.value.length === 0) continue;
+      let startIdx = 0;
+      while ((startIdx = line.indexOf(f.value, startIdx)) !== -1) {
+        matches.push({
+          start: startIdx,
+          end: startIdx + f.value.length,
+          finding: f,
+        });
+        startIdx += f.value.length;
+      }
+    }
+
+    // Sort matches by start position, then length descending
+    matches.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+
+    // Remove overlapping matches
+    const nonOverlapping: SpanMatch[] = [];
+    let lastEnd = 0;
+    for (const m of matches) {
+      if (m.start >= lastEnd) {
+        nonOverlapping.push(m);
+        lastEnd = m.end;
+      }
+    }
+
+    if (nonOverlapping.length === 0) {
+      return (
+        <p key={lineIndex} className="mb-3 leading-relaxed">
+          {line}
+        </p>
+      );
+    }
+
+    const elements: React.ReactNode[] = [];
+    let curIdx = 0;
+    for (let i = 0; i < nonOverlapping.length; i++) {
+      const m = nonOverlapping[i];
+      if (m.start > curIdx) {
+        elements.push(line.substring(curIdx, m.start));
+      }
+
+      const f = m.finding;
+      if (previewMode === 'original') {
+        elements.push(
+          <span key={`${lineIndex}_${i}`} className="font-medium text-[#111827]">
+            {f.value}
+          </span>
+        );
+      } else if (f.status === 'review') {
+        elements.push(
+          <span
+            key={`${lineIndex}_${i}`}
+            className="bg-[#FEF08A] border border-[#FACC15] text-[#854D0E] font-semibold px-1 py-0.5 rounded inline-flex items-center gap-1 group relative cursor-pointer shadow-xs mx-0.5"
+            title={`${f.label} (${f.confidence || 60}% sure) — Click to toggle`}
+            onClick={() => toggleFindingStatus(f.id)}
+          >
+            <span>{f.value}</span>
+            <span className="bg-[#111827] text-white font-mono text-[9px] font-bold px-1 py-0.2 rounded uppercase tracking-wider">
+              {f.label} · {f.confidence || 60}%
+            </span>
+          </span>
+        );
+      } else if (f.status === 'redact') {
+        elements.push(
+          <span
+            key={`${lineIndex}_${i}`}
+            className="mx-0.5 inline-block"
+            onClick={() => keepFinding(f.id)}
+            title="Redacted (Click to Keep)"
+          >
+            {renderRedactionToken(f.value, f.label)}
+          </span>
+        );
+      } else {
+        // kept
+        elements.push(
+          <span
+            key={`${lineIndex}_${i}`}
+            className="underline decoration-dotted decoration-[#9CA3AF] text-[#111827] font-medium mx-0.5 cursor-pointer"
+            title="Kept on purpose (Click to Redact)"
+            onClick={() => redactFinding(f.id)}
+          >
+            {f.value}
+          </span>
+        );
+      }
+      curIdx = m.end;
+    }
+
+    if (curIdx < line.length) {
+      elements.push(line.substring(curIdx));
+    }
+
+    return (
+      <p key={lineIndex} className="mb-3 leading-relaxed">
+        {elements}
+      </p>
+    );
+  };
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex flex-col bg-[#F3F4F6]">
@@ -229,14 +346,14 @@ export const ReviewWorkspacePage: React.FC = () => {
             </button>
           </div>
 
-          {/* Original vs Redacted Preview Toggle */}
+          {/* Preview Toggle Pill: Original vs Redacted */}
           <div className="flex items-center bg-[#F3F4F6] p-0.5 rounded-lg border border-[#E5E7EB] text-xs font-semibold">
             <button
               type="button"
               onClick={() => setPreviewMode('original')}
               className={`px-3 py-1 rounded-md transition-all ${
                 previewMode === 'original'
-                  ? 'bg-white text-[#111827] shadow-sm'
+                  ? 'bg-white text-[#111827] shadow-xs font-bold'
                   : 'text-[#6B7280] hover:text-[#111827]'
               }`}
             >
@@ -247,7 +364,7 @@ export const ReviewWorkspacePage: React.FC = () => {
               onClick={() => setPreviewMode('redacted')}
               className={`px-3 py-1 rounded-md transition-all ${
                 previewMode === 'redacted'
-                  ? 'bg-white text-[#111827] shadow-sm'
+                  ? 'bg-[#111827] text-white shadow-xs font-bold'
                   : 'text-[#6B7280] hover:text-[#111827]'
               }`}
             >
@@ -255,15 +372,16 @@ export const ReviewWorkspacePage: React.FC = () => {
             </button>
           </div>
 
-          {/* Look Switcher Pills */}
-          <div className="flex items-center gap-1 text-xs">
+          {/* Redaction Look Picker */}
+          <div className="flex items-center bg-[#F3F4F6] p-0.5 rounded-lg border border-[#E5E7EB] text-xs">
             <button
               type="button"
               onClick={() => setCurrentLook('bar')}
-              className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all ${
+              title="Black bar redaction look"
+              className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
                 currentLook === 'bar'
-                  ? 'border-[#111827] bg-[#111827] text-white shadow-sm'
-                  : 'border-[#E5E7EB] bg-white text-[#4B5563] hover:text-[#111827]'
+                  ? 'bg-white text-[#111827] shadow-xs'
+                  : 'text-[#6B7280] hover:text-[#111827]'
               }`}
             >
               Bar
@@ -271,32 +389,34 @@ export const ReviewWorkspacePage: React.FC = () => {
             <button
               type="button"
               onClick={() => setCurrentLook('label')}
-              className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all ${
+              title="Label redaction look [TYPE]"
+              className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
                 currentLook === 'label'
-                  ? 'border-[#111827] bg-[#111827] text-white shadow-sm'
-                  : 'border-[#E5E7EB] bg-white text-[#4B5563] hover:text-[#111827]'
+                  ? 'bg-white text-[#111827] shadow-xs'
+                  : 'text-[#6B7280] hover:text-[#111827]'
               }`}
             >
-              [LABEL]
+              Label
             </button>
             <button
               type="button"
               onClick={() => setCurrentLook('partial')}
-              className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all ${
+              title="Partial mask redaction look •••• 1234"
+              className={`px-2.5 py-1 rounded-md font-semibold transition-all ${
                 currentLook === 'partial'
-                  ? 'border-[#111827] bg-[#111827] text-white shadow-sm'
-                  : 'border-[#E5E7EB] bg-white text-[#4B5563] hover:text-[#111827]'
+                  ? 'bg-white text-[#111827] shadow-xs'
+                  : 'text-[#6B7280] hover:text-[#111827]'
               }`}
             >
               Partial
             </button>
           </div>
 
-          {/* Primary CTA */}
+          {/* Primary Action Button */}
           <button
             type="button"
             onClick={handleApplyAndVerify}
-            className="bg-[#111827] hover:bg-black text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition-colors"
+            className="bg-[#111827] hover:bg-black text-white text-xs font-bold py-1.5 px-4 rounded-lg flex items-center gap-1.5 shadow-sm transition-all"
           >
             <span>Apply & verify</span>
             <ArrowRight className="w-3.5 h-3.5" />
@@ -312,120 +432,8 @@ export const ReviewWorkspacePage: React.FC = () => {
             ref={docContainerRef}
             className="w-full max-w-2xl bg-white rounded-xl border border-[#E5E7EB] shadow-card p-10 sm:p-14 text-sm text-[#111827] leading-relaxed relative select-text"
           >
-            {/* Top Floating Badge for review item: Northwind Traders */}
-            {!isNorthwindRedacted && previewMode === 'redacted' && (
-              <div className="mb-2 inline-flex items-center">
-                <span className="bg-[#111827] text-white font-mono text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
-                  NAME · 55%
-                </span>
-              </div>
-            )}
-
-            {/* Document Header */}
-            <div className="mb-8">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-[#111827] tracking-tight mb-2">
-                Employment Offer Letter
-              </h1>
-              <p className="text-xs text-[#6B7280]">12 October 2026</p>
-            </div>
-
-            {/* Salutation */}
-            <p className="mb-4">
-              Dear{' '}
-              {renderRedactionToken('Priya Nair', 'NAME', 'w-24')}
-              ,
-            </p>
-
-            {/* Opening Paragraph */}
-            <p className="mb-6 leading-relaxed">
-              We are pleased to offer you the role of Data Analyst at{' '}
-              {isNorthwindRedacted ? (
-                renderRedactionToken('Northwind Traders', 'NAME', 'w-36')
-              ) : (
-                <span className="bg-[#FEF08A] border border-[#FACC15] text-[#854D0E] font-semibold px-1 rounded">
-                  Northwind Traders
-                </span>
-              )}
-              , starting 3 November 2026. Please confirm your acceptance by replying to{' '}
-              <span className="underline decoration-dotted text-[#111827]">
-                hr@northwind.example
-              </span>
-              .
-            </p>
-
-            {/* Details Section */}
-            <div className="my-6 pt-4 border-t border-[#F3F4F6]">
-              <h2 className="text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF] mb-4">
-                YOUR DETAILS ON FILE
-              </h2>
-
-              <div className="space-y-3 font-mono text-xs">
-                <div className="flex items-center">
-                  <span className="w-36 text-[#6B7280] font-sans">Name</span>
-                  <div>{renderRedactionToken('Priya Nair', 'NAME', 'w-24')}</div>
-                </div>
-
-                <div className="flex items-center">
-                  <span className="w-36 text-[#6B7280] font-sans">Date of birth</span>
-                  <div>{renderRedactionToken('14/03/1989', 'BIRTH', 'w-28')}</div>
-                </div>
-
-                <div className="flex items-center">
-                  <span className="w-36 text-[#6B7280] font-sans">Email</span>
-                  <div>{renderRedactionToken('priya.nair@mailbox.example', 'EMAIL', 'w-64')}</div>
-                </div>
-
-                <div className="flex items-center">
-                  <span className="w-36 text-[#6B7280] font-sans">Phone</span>
-                  <div>{renderRedactionToken('+91 98765 43210', 'PHONE', 'w-40')}</div>
-                </div>
-
-                <div className="flex items-center">
-                  <span className="w-36 text-[#6B7280] font-sans">PAN</span>
-                  <div>{renderRedactionToken('ABCDE1234F', 'PAN', 'w-32')}</div>
-                </div>
-
-                <div className="flex items-center">
-                  <span className="w-36 text-[#6B7280] font-sans">Aadhaar</span>
-                  <div>{renderRedactionToken('2345 6789 0124', 'AADHAAR', 'w-36')}</div>
-                </div>
-
-                <div className="flex items-center">
-                  <span className="w-36 text-[#6B7280] font-sans">Address</span>
-                  <div>{renderRedactionToken('42 Lakeview Road, Chennai', 'ADDRESS', 'w-64')}</div>
-                </div>
-
-                <div className="flex items-center">
-                  <span className="w-36 text-[#6B7280] font-sans">Expense card</span>
-                  <div>{renderRedactionToken('4532 0151 1283 0366', 'CARD', 'w-48')}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Closing */}
-            <div className="mt-8 pt-4 border-t border-[#F3F4F6]">
-              <p className="mb-4">We look forward to welcoming you to the team.</p>
-              <p className="mb-1 text-xs text-[#6B7280]">Sincerely,</p>
-              <div className="mb-1">
-                {isArunRedacted ? (
-                  renderRedactionToken('Arun Mehta', 'NAME', 'w-28')
-                ) : (
-                  <span className="bg-[#FEF08A] border border-[#FACC15] text-[#854D0E] font-semibold px-1 rounded inline-block">
-                    Arun Mehta
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-[#4B5563]">
-                Head of People{' '}
-                {isNorthwindRedacted ? (
-                  renderRedactionToken('Northwind Traders', 'NAME', 'w-32')
-                ) : (
-                  <span className="bg-[#FEF08A] border border-[#FACC15] text-[#854D0E] font-semibold px-1 rounded inline-block">
-                    Northwind Traders
-                  </span>
-                )}
-              </p>
-            </div>
+            {/* Document Dynamic Text Rendering */}
+            {docText.split('\n').map((line, idx) => renderParagraph(line, idx))}
           </div>
         </div>
 

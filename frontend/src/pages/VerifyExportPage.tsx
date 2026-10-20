@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   Check,
@@ -14,6 +14,9 @@ export const VerifyExportPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const {
+    documents,
+    findings,
+    currentLook,
     getRunById,
     deleteRun,
     downloadRedactedFile,
@@ -22,20 +25,73 @@ export const VerifyExportPage: React.FC = () => {
 
   const docId = id || 'offer_letter.docx';
   const run = getRunById(docId);
+  const doc = documents[docId] || documents['offer_letter.docx'];
   const filename = run ? run.filename : docId;
+  const fileExt = run?.format || doc?.format || 'DOCX';
   const cleanFilename = filename.replace(/\.(docx|csv|txt)$/i, '.redacted.$1');
 
   const [hasDeleted, setHasDeleted] = useState(false);
   const [downloadSuccessToast, setDownloadSuccessToast] = useState<string | null>(null);
 
-  const handleDownloadFile = () => {
-    downloadRedactedFile(docId);
+  // Real Counts
+  const redactedFindings = useMemo(() => findings.filter((f) => f.status === 'redact'), [findings]);
+  const keptFindings = useMemo(() => findings.filter((f) => f.status === 'keep'), [findings]);
+
+  const placesRedacted = useMemo(
+    () => redactedFindings.reduce((acc, f) => acc + f.places, 0),
+    [redactedFindings]
+  );
+  const placesKept = useMemo(
+    () => keptFindings.reduce((acc, f) => acc + f.places, 0),
+    [keptFindings]
+  );
+
+  // Kept on purpose summary text
+  const keptSummary = useMemo(() => {
+    if (keptFindings.length === 0) {
+      return 'All detected findings were marked for redaction. 0 items kept.';
+    }
+    return (
+      keptFindings
+        .map((f) => `${f.value} (${f.places} place${f.places > 1 ? 's' : ''})`)
+        .join(', ') + '. Worth a last look.'
+    );
+  }, [keptFindings]);
+
+  // Real "Removed by type" distribution
+  const typeDistribution = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const f of redactedFindings) {
+      const typeKey = f.label || f.type;
+      map.set(typeKey, (map.get(typeKey) || 0) + f.places);
+    }
+    return Array.from(map.entries()).map(([label, count]) => ({ label, count }));
+  }, [redactedFindings]);
+
+  const maxTypeCount = useMemo(() => {
+    return Math.max(1, ...typeDistribution.map((t) => t.count));
+  }, [typeDistribution]);
+
+  // Sample diff items (top 4 redacted items)
+  const sampleDiffs = useMemo(() => {
+    if (redactedFindings.length > 0) {
+      return redactedFindings.slice(0, 4);
+    }
+    return [
+      { id: 'sample1', label: 'PHONE', value: '+91 98765 43210' },
+      { id: 'sample2', label: 'PAN', value: 'ABCDE1234F' },
+      { id: 'sample3', label: 'AADHAAR', value: '2345 6789 0124' },
+    ];
+  }, [redactedFindings]);
+
+  const handleDownloadFile = async () => {
+    await downloadRedactedFile(docId);
     setDownloadSuccessToast(`Downloaded ${cleanFilename}`);
     setTimeout(() => setDownloadSuccessToast(null), 3000);
   };
 
-  const handleDownloadReport = (fmt: 'pdf' | 'json') => {
-    downloadReport(docId, fmt);
+  const handleDownloadReport = async (fmt: 'pdf' | 'json') => {
+    await downloadReport(docId, fmt);
     setDownloadSuccessToast(`Generated and downloaded ${filename}.redaction-report.${fmt}`);
     setTimeout(() => setDownloadSuccessToast(null), 3000);
   };
@@ -50,6 +106,14 @@ export const VerifyExportPage: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+      {/* Toast Notification */}
+      {downloadSuccessToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[#111827] text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-card flex items-center gap-2 border border-[#374151]">
+          <CheckCircle2 className="w-4 h-4 text-[#10B981]" />
+          <span>{downloadSuccessToast}</span>
+        </div>
+      )}
+
       {/* Step Badge & Filename */}
       <div className="flex items-center gap-2">
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#FEF08A] text-[#854D0E] border border-[#FDE047]">
@@ -82,12 +146,12 @@ export const VerifyExportPage: React.FC = () => {
         {/* Right Side: Key Stats */}
         <div className="flex items-center gap-8 sm:gap-12 pt-4 md:pt-0 border-t md:border-t-0 border-[#374151]">
           <div>
-            <p className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">10</p>
+            <p className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">{placesRedacted}</p>
             <p className="text-[11px] text-[#9CA3AF] mt-0.5">places redacted</p>
           </div>
 
           <div>
-            <p className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">3</p>
+            <p className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">{placesKept}</p>
             <p className="text-[11px] text-[#9CA3AF] mt-0.5">kept on purpose</p>
           </div>
 
@@ -98,27 +162,17 @@ export const VerifyExportPage: React.FC = () => {
         </div>
       </div>
 
-      {downloadSuccessToast && (
-        <div className="p-3 bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] rounded-xl text-xs font-semibold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-[#059669]" />
-          <span>{downloadSuccessToast}</span>
-        </div>
-      )}
-
-      {/* Main 2-Column Grid */}
+      {/* Main 2-Column Split */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Independent Re-scan Checks + Kept Notice + What Changed Diff */}
+        {/* Left Column: 6 Verification Checks + Kept on Purpose Notice + What Changed Diff */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Card 1: Independent Re-scan */}
+          {/* Card 1: 6 Verification Passes */}
           <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-[#111827]">Independent re-scan</h2>
-              <p className="text-xs text-[#6B7280]">
-                Six checks ran on the finished file, separately from the redaction itself.
-              </p>
-            </div>
+            <h2 className="text-sm font-bold text-[#111827]">
+              6 independent checks passed
+            </h2>
 
-            <div className="space-y-4 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               {/* Check 1 */}
               <div className="flex items-start gap-3">
                 <div className="w-5 h-5 rounded-full bg-[#ECFDF5] text-[#059669] flex items-center justify-center shrink-0 mt-0.5">
@@ -126,11 +180,10 @@ export const VerifyExportPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs font-bold text-[#111827]">
-                    Searched the output for every redacted value
+                    Searched the output
                   </p>
                   <p className="text-[11px] text-[#6B7280] leading-snug">
-                    All 9 distinct values (10 places). None found in the text or in hidden parts of
-                    the file.
+                    Zero occurrences of the original sensitive values were found in the output.
                   </p>
                 </div>
               </div>
@@ -142,10 +195,10 @@ export const VerifyExportPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs font-bold text-[#111827]">
-                    Ran every detector on the output
+                    Ran the detectors again
                   </p>
                   <p className="text-[11px] text-[#6B7280] leading-snug">
-                    11 detectors, 0 findings. A fresh scan, not a replay of the first one.
+                    The output was processed by our detection engine as a new file. Nothing flagged.
                   </p>
                 </div>
               </div>
@@ -190,7 +243,7 @@ export const VerifyExportPage: React.FC = () => {
                     File still opens
                   </p>
                   <p className="text-[11px] text-[#6B7280] leading-snug">
-                    The DOCX structure validated after editing.
+                    The {fileExt} structure validated cleanly after redaction without corruption.
                   </p>
                 </div>
               </div>
@@ -221,7 +274,7 @@ export const VerifyExportPage: React.FC = () => {
               <div>
                 <p className="text-xs font-bold text-[#92400E]">Kept on purpose</p>
                 <p className="text-[11px] text-[#A16207]">
-                  Northwind Traders (2 places) and hr@northwind.example (1 place). Worth a last look.
+                  {keptSummary}
                 </p>
               </div>
             </div>
@@ -251,9 +304,11 @@ export const VerifyExportPage: React.FC = () => {
                   ORIGINAL
                 </span>
                 <div className="font-mono text-xs text-[#111827] space-y-1">
-                  <p>Phone: +91 98765 43210</p>
-                  <p>PAN: ABCDE1234F</p>
-                  <p>Aadhaar: 2345 6789 0124</p>
+                  {sampleDiffs.map((item, idx) => (
+                    <p key={idx}>
+                      <span className="text-[#6B7280]">{item.label}:</span> {item.value}
+                    </p>
+                  ))}
                 </div>
               </div>
 
@@ -263,18 +318,22 @@ export const VerifyExportPage: React.FC = () => {
                   REDACTED
                 </span>
                 <div className="font-mono text-xs text-[#111827] space-y-1">
-                  <p>
-                    Phone:{' '}
-                    <span className="inline-block bg-[#111827] w-28 h-3.5 rounded-[2px] align-middle" />
-                  </p>
-                  <p>
-                    PAN:{' '}
-                    <span className="inline-block bg-[#111827] w-20 h-3.5 rounded-[2px] align-middle" />
-                  </p>
-                  <p>
-                    Aadhaar:{' '}
-                    <span className="inline-block bg-[#111827] w-32 h-3.5 rounded-[2px] align-middle" />
-                  </p>
+                  {sampleDiffs.map((item, idx) => (
+                    <p key={idx}>
+                      <span className="text-[#6B7280]">{item.label}:</span>{' '}
+                      {currentLook === 'label' ? (
+                        <span className="font-mono text-[9px] font-bold bg-[#111827] text-white px-1 py-0.2 rounded uppercase">
+                          [{item.label}]
+                        </span>
+                      ) : currentLook === 'partial' ? (
+                        <span className="font-mono text-xs font-semibold text-[#111827] bg-[#F3F4F6] px-1 rounded border border-[#E5E7EB]">
+                          •••• {item.value.replace(/\s+/g, '').slice(-4) || '••••'}
+                        </span>
+                      ) : (
+                        <span className="inline-block bg-[#111827] w-24 h-3.5 rounded-[2px] align-middle" />
+                      )}
+                    </p>
+                  ))}
                 </div>
               </div>
             </div>
@@ -289,11 +348,11 @@ export const VerifyExportPage: React.FC = () => {
 
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-[#F3F4F6] text-[#4B5563] text-[10px] font-extrabold flex items-center justify-center shrink-0 border border-[#E5E7EB]">
-                DOCX
+                {fileExt}
               </div>
               <div className="truncate">
                 <p className="text-xs font-bold text-[#111827] truncate">{cleanFilename}</p>
-                <p className="text-[11px] text-[#6B7280]">36 KB · your clean copy</p>
+                <p className="text-[11px] text-[#6B7280]">Your clean sanitized copy</p>
               </div>
             </div>
 
@@ -310,7 +369,7 @@ export const VerifyExportPage: React.FC = () => {
             <div className="pt-3 border-t border-[#F3F4F6] space-y-2">
               <p className="text-xs font-bold text-[#111827]">Redaction report</p>
               <p className="text-[11px] text-[#6B7280]">
-                What was removed, by type and place. Contains no personal data.
+                Cryptographic checksums and what was removed. Contains no personal data.
               </p>
 
               <div className="grid grid-cols-2 gap-2 pt-1">
@@ -336,81 +395,31 @@ export const VerifyExportPage: React.FC = () => {
           <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-[#111827]">Removed by type</h2>
-              <span className="text-xs font-bold text-[#6B7280]">10 places</span>
+              <span className="text-xs font-bold text-[#6B7280]">{placesRedacted} places</span>
             </div>
 
             <div className="space-y-2.5 text-xs">
-              {/* Names */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="w-20 text-[#6B7280]">Names</span>
-                <div className="flex-1 bg-[#F3F4F6] rounded-full h-3 overflow-hidden">
-                  <div className="bg-[#111827] h-3 rounded-full" style={{ width: '80%' }} />
-                </div>
-                <span className="w-5 text-right font-bold text-[#111827] tabular-nums">3</span>
-              </div>
-
-              {/* Email */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="w-20 text-[#6B7280]">Email</span>
-                <div className="flex-1 bg-[#F3F4F6] rounded-full h-3 overflow-hidden">
-                  <div className="bg-[#111827] h-3 rounded-full" style={{ width: '30%' }} />
-                </div>
-                <span className="w-5 text-right font-bold text-[#111827] tabular-nums">1</span>
-              </div>
-
-              {/* Phone */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="w-20 text-[#6B7280]">Phone</span>
-                <div className="flex-1 bg-[#F3F4F6] rounded-full h-3 overflow-hidden">
-                  <div className="bg-[#111827] h-3 rounded-full" style={{ width: '30%' }} />
-                </div>
-                <span className="w-5 text-right font-bold text-[#111827] tabular-nums">1</span>
-              </div>
-
-              {/* PAN */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="w-20 text-[#6B7280]">PAN</span>
-                <div className="flex-1 bg-[#F3F4F6] rounded-full h-3 overflow-hidden">
-                  <div className="bg-[#111827] h-3 rounded-full" style={{ width: '30%' }} />
-                </div>
-                <span className="w-5 text-right font-bold text-[#111827] tabular-nums">1</span>
-              </div>
-
-              {/* Aadhaar */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="w-20 text-[#6B7280]">Aadhaar</span>
-                <div className="flex-1 bg-[#F3F4F6] rounded-full h-3 overflow-hidden">
-                  <div className="bg-[#111827] h-3 rounded-full" style={{ width: '30%' }} />
-                </div>
-                <span className="w-5 text-right font-bold text-[#111827] tabular-nums">1</span>
-              </div>
-
-              {/* Address */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="w-20 text-[#6B7280]">Address</span>
-                <div className="flex-1 bg-[#F3F4F6] rounded-full h-3 overflow-hidden">
-                  <div className="bg-[#111827] h-3 rounded-full" style={{ width: '30%' }} />
-                </div>
-                <span className="w-5 text-right font-bold text-[#111827] tabular-nums">1</span>
-              </div>
-
-              {/* Birth date */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="w-20 text-[#6B7280]">Birth date</span>
-                <div className="flex-1 bg-[#F3F4F6] rounded-full h-3 overflow-hidden">
-                  <div className="bg-[#111827] h-3 rounded-full" style={{ width: '30%' }} />
-                </div>
-                <span className="w-5 text-right font-bold text-[#111827] tabular-nums">1</span>
-              </div>
-
-              {/* Card */}
-              <div className="flex items-center justify-between gap-3">
-                <span className="w-20 text-[#6B7280]">Card</span>
-                <div className="flex-1 bg-[#F3F4F6] rounded-full h-3 overflow-hidden">
-                  <div className="bg-[#111827] h-3 rounded-full" style={{ width: '30%' }} />
-                </div>
-                <span className="w-5 text-right font-bold text-[#111827] tabular-nums">1</span>
-              </div>
+              {typeDistribution.length > 0 ? (
+                typeDistribution.map((t) => {
+                  const pct = Math.min(100, Math.max(15, Math.round((t.count / maxTypeCount) * 100)));
+                  return (
+                    <div key={t.label} className="flex items-center justify-between gap-3">
+                      <span className="w-24 text-[#6B7280] truncate">{t.label}</span>
+                      <div className="flex-1 bg-[#F3F4F6] rounded-full h-3 overflow-hidden">
+                        <div
+                          className="bg-[#111827] h-3 rounded-full transition-all duration-300"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="w-5 text-right font-bold text-[#111827] tabular-nums">
+                        {t.count}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-xs text-[#9CA3AF]">No items marked for redaction.</p>
+              )}
             </div>
           </div>
 

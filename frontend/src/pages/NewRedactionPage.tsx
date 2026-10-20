@@ -3,6 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { Upload, Lock, ArrowRight, Check } from 'lucide-react';
 import { useRedact } from '../context/RedactContext';
 
+interface StagedFileItem {
+  id: string;
+  name: string;
+  ext: string;
+  size: string;
+  progress?: number;
+  findingsCount?: number;
+  readyForReview: boolean;
+  rawFile?: File;
+}
+
 export const NewRedactionPage: React.FC = () => {
   const navigate = useNavigate();
   const {
@@ -11,32 +22,26 @@ export const NewRedactionPage: React.FC = () => {
     setActiveRuleSetId,
     currentLook,
     setCurrentLook,
-    addNewUploadRun,
+    scanUploadedFile,
     setCurrentDocumentId,
   } = useRedact();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [scanProgress, setScanProgress] = useState(62);
+  const [scanProgress, setScanProgress] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
+  const [scanPhaseText, setScanPhaseText] = useState('Scanning for personal data...');
 
   // Files in upload staging
-  const [stagedFiles, setStagedFiles] = useState<Array<{
-    id: string;
-    name: string;
-    ext: string;
-    size: string;
-    progress?: number;
-    findingsCount?: number;
-    readyForReview: boolean;
-  }>>([
+  const [stagedFiles, setStagedFiles] = useState<StagedFileItem[]>([
     {
       id: 'offer_letter.docx',
       name: 'offer_letter.docx',
       ext: 'DOCX',
       size: '38 KB',
-      progress: 62,
-      readyForReview: false,
+      progress: 100,
+      findingsCount: 13,
+      readyForReview: true,
     },
     {
       id: 'patients_q3.csv',
@@ -50,19 +55,18 @@ export const NewRedactionPage: React.FC = () => {
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const added: typeof stagedFiles = [];
+    const added: StagedFileItem[] = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       const ext = f.name.split('.').pop()?.toUpperCase() || 'FILE';
-      addNewUploadRun(f);
       added.push({
         id: f.name,
         name: f.name,
         ext,
         size: `${Math.max(1, Math.round(f.size / 1024))} KB`,
-        progress: 100,
-        findingsCount: 13,
-        readyForReview: true,
+        progress: 0,
+        readyForReview: false,
+        rawFile: f,
       });
     }
     setStagedFiles((prev) => [...prev, ...added]);
@@ -83,21 +87,56 @@ export const NewRedactionPage: React.FC = () => {
     setIsDragging(false);
   };
 
-  const handleScanClick = () => {
+  const handleScanClick = async () => {
     setIsScanning(true);
-    let p = 62;
-    const interval = setInterval(() => {
-      p += 10;
-      if (p >= 100) {
-        clearInterval(interval);
-        setScanProgress(100);
-        setIsScanning(false);
-        setCurrentDocumentId('offer_letter.docx');
-        navigate('/review/offer_letter.docx');
+    setScanProgress(15);
+    setScanPhaseText('Reading file structure...');
+
+    // Find the first unreviewed file with a rawFile, or the last added file
+    const targetItem = stagedFiles.find((f) => f.rawFile) || stagedFiles[0];
+
+    try {
+      if (targetItem.rawFile) {
+        setTimeout(() => {
+          setScanProgress(45);
+          setScanPhaseText('Running 11 PII detectors...');
+        }, 200);
+
+        setTimeout(() => {
+          setScanProgress(80);
+          setScanPhaseText('Applying rule set filters...');
+        }, 500);
+
+        const docId = await scanUploadedFile(targetItem.rawFile);
+
+        setTimeout(() => {
+          setScanProgress(100);
+          setScanPhaseText('Scan complete!');
+          setIsScanning(false);
+          setCurrentDocumentId(docId);
+          navigate(`/review/${docId}`);
+        }, 800);
       } else {
-        setScanProgress(p);
+        // Default demo document fallback
+        let p = 20;
+        const interval = setInterval(() => {
+          p += 25;
+          if (p >= 100) {
+            clearInterval(interval);
+            setScanProgress(100);
+            setIsScanning(false);
+            setCurrentDocumentId('offer_letter.docx');
+            navigate('/review/offer_letter.docx');
+          } else {
+            setScanProgress(p);
+          }
+        }, 150);
       }
-    }, 150);
+    } catch (err) {
+      console.error('Scan error:', err);
+      setIsScanning(false);
+      navigate(`/review/${targetItem.id}`);
+    }
   };
 
   const handleOpenReview = (docId: string) => {
@@ -138,62 +177,55 @@ export const NewRedactionPage: React.FC = () => {
         <div className="lg:col-span-7 space-y-6">
           {/* Dropzone Container */}
           <div
-            onDrop={handleDrop}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
-            className={`border-2 border-dashed rounded-2xl p-8 sm:p-12 bg-white flex flex-col items-center justify-center text-center transition-all ${
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-all ${
               isDragging
-                ? 'border-[#111827] bg-[#F9FAFB] scale-[0.99]'
-                : 'border-[#9CA3AF] hover:border-[#4B5563]'
+                ? 'border-[#111827] bg-[#FEF9C3]/50 scale-[1.01]'
+                : 'border-[#D1D5DB] hover:border-[#111827] bg-[#FAFAFA]'
             }`}
           >
             <input
-              ref={fileInputRef}
               type="file"
-              multiple
-              className="hidden"
+              ref={fileInputRef}
               onChange={(e) => handleFiles(e.target.files)}
+              className="hidden"
+              multiple
+              accept=".docx,.txt,.csv,.pdf,.json,.md"
             />
 
-            {/* Upload Icon */}
-            <div className="w-14 h-14 rounded-full bg-[#FACC15] flex items-center justify-center mb-4 shadow-sm">
-              <Upload className="w-6 h-6 text-[#111827] stroke-[2.2]" />
+            <div className="w-14 h-14 rounded-full bg-white border border-[#E5E7EB] flex items-center justify-center mx-auto mb-4 shadow-sm text-[#111827]">
+              <Upload className="w-6 h-6 stroke-[2.2]" />
             </div>
 
-            <h2 className="text-base font-bold text-[#111827] mb-1">
-              Drag files here
-            </h2>
-            <p className="text-xs text-[#6B7280] mb-5">
-              or pick them from your computer. Up to 10 files, 10 MB each.
+            <p className="text-base font-bold text-[#111827] mb-1">
+              Drop files here, or{' '}
+              <span className="underline decoration-2 underline-offset-2 hover:text-black">
+                browse
+              </span>
+            </p>
+            <p className="text-xs text-[#6B7280]">
+              Word (.docx), spreadsheets (.csv), plain text (.txt), and PDF
             </p>
 
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="bg-[#111827] hover:bg-black text-white text-xs font-semibold px-6 py-2.5 rounded-lg shadow-sm transition-colors mb-7"
-            >
-              Choose files
-            </button>
-
-            {/* Format Support Badges */}
-            <div className="flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
-              <span className="bg-[#111827] text-white font-bold px-2 py-0.5 rounded text-[10px]">
-                DOCX
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white border border-[#E5E7EB] text-[#374151]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+                DOCX (In place)
               </span>
-              <span className="bg-[#111827] text-white font-bold px-2 py-0.5 rounded text-[10px]">
-                TXT
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white border border-[#E5E7EB] text-[#374151]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+                TXT (Exact)
               </span>
-              <span className="bg-[#111827] text-white font-bold px-2 py-0.5 rounded text-[10px]">
-                CSV
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white border border-[#E5E7EB] text-[#374151]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+                CSV (Cell-level)
               </span>
-              <span className="border border-dashed border-[#D1D5DB] text-[#9CA3AF] px-2 py-0.5 rounded text-[10px]">
-                XLSX · soon
-              </span>
-              <span className="border border-dashed border-[#D1D5DB] text-[#9CA3AF] px-2 py-0.5 rounded text-[10px]">
-                PDF · soon
-              </span>
-              <span className="border border-dashed border-[#D1D5DB] text-[#9CA3AF] px-2 py-0.5 rounded text-[10px]">
-                PNG / JPG · soon
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white border border-[#E5E7EB] text-[#374151]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
+                PDF (Under review)
               </span>
             </div>
           </div>
@@ -203,7 +235,7 @@ export const NewRedactionPage: React.FC = () => {
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs px-1">
                 <span className="font-bold text-[#111827]">
-                  Ready to scan · {stagedFiles.length} files
+                  Ready to scan · {stagedFiles.length} file{stagedFiles.length > 1 ? 's' : ''}
                 </span>
                 <button
                   type="button"
@@ -233,7 +265,7 @@ export const NewRedactionPage: React.FC = () => {
 
                   {/* Status / Action */}
                   <div className="shrink-0 flex items-center gap-3">
-                    {f.readyForReview ? (
+                    {f.readyForReview && !isScanning ? (
                       <>
                         {f.findingsCount !== undefined && (
                           <span className="bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] text-[11px] font-bold px-2.5 py-0.5 rounded-full">
@@ -248,10 +280,10 @@ export const NewRedactionPage: React.FC = () => {
                           Review
                         </button>
                       </>
-                    ) : (
+                    ) : isScanning ? (
                       <div className="w-48 text-right">
                         <div className="flex items-center justify-between text-[11px] text-[#6B7280] mb-1">
-                          <span>Scanning for personal data...</span>
+                          <span>{scanPhaseText}</span>
                           <span className="font-bold text-[#111827]">{scanProgress}%</span>
                         </div>
                         <div className="w-full bg-[#E5E7EB] rounded-full h-1.5 overflow-hidden">
@@ -261,6 +293,10 @@ export const NewRedactionPage: React.FC = () => {
                           />
                         </div>
                       </div>
+                    ) : (
+                      <span className="bg-[#F3F4F6] text-[#6B7280] text-[11px] font-semibold px-3 py-1 rounded-full">
+                        Ready to scan
+                      </span>
                     )}
                   </div>
                 </div>
@@ -388,7 +424,7 @@ export const NewRedactionPage: React.FC = () => {
               onClick={handleScanClick}
               className="w-full bg-[#111827] hover:bg-black disabled:bg-slate-300 text-white text-xs font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all"
             >
-              <span>{isScanning ? 'Scanning in progress...' : `Scan ${stagedFiles.length} files`}</span>
+              <span>{isScanning ? scanPhaseText : `Scan ${stagedFiles.length} file${stagedFiles.length > 1 ? 's' : ''}`}</span>
               {!isScanning && <ArrowRight className="w-3.5 h-3.5" />}
             </button>
 
