@@ -14,6 +14,8 @@
 
 import { EvidenceAggregator, CandidateInput } from '../detection/evidenceAggregator';
 import { DocumentType } from '../detection/documentClassifier';
+import { initializeDefaultDetectors, IPIIDetector, RawDetectedCandidate } from '../services/pii/detectors';
+import { mergeCandidates } from '../services/pii/utils/candidateMerger.utils';
 
 export interface GroundTruthEntity {
   type: string;
@@ -53,8 +55,9 @@ export interface BenchmarkReport {
 export class BenchmarkRunner {
   /**
    * Runs the complete accuracy benchmark on a corpus of ground-truth annotated documents
+   * using the REAL production registered detector implementations.
    */
-  public static evaluateCorpus(corpus: SyntheticDocumentRecord[]): BenchmarkReport {
+  public static async evaluateCorpus(corpus: SyntheticDocumentRecord[]): Promise<BenchmarkReport> {
     let globalTP = 0;
     let globalFP = 0;
     let globalFN = 0;
@@ -68,12 +71,15 @@ export class BenchmarkRunner {
 
     const initStats = () => ({ tp: 0, fp: 0, fn: 0 });
 
+    const registry = initializeDefaultDetectors();
+    const detectors = registry.getAllDetectors();
+
     for (const doc of corpus) {
       const docTypeKey = doc.documentType;
       if (!docTypeStats[docTypeKey]) docTypeStats[docTypeKey] = initStats();
 
-      // Extract raw candidates using baseline detectors
-      const rawCandidates = this.extractRawCandidates(doc.text);
+      // Extract raw candidates using real production registered detectors
+      const rawCandidates = await this.extractRawCandidates(doc.text, detectors);
       totalDetected += rawCandidates.length;
 
       // Run Evidence Aggregator pipeline
@@ -205,218 +211,50 @@ export class BenchmarkRunner {
   }
 
   private static typesCompatible(typeA: string, typeB: string): boolean {
-    const a = typeA.toUpperCase();
-    const b = typeB.toUpperCase();
-    if (a === b) return true;
-    if ((a.includes('NAME') || a.includes('PERSON')) && (b.includes('NAME') || b.includes('PERSON'))) return true;
-    if ((a.includes('BIRTH') || a.includes('DOB')) && (b.includes('BIRTH') || b.includes('DOB'))) return true;
-    if (a.includes('ADDRESS') && b.includes('ADDRESS')) return true;
-    if (a.includes('PHONE') && b.includes('PHONE')) return true;
-    if (a.includes('EMAIL') && b.includes('EMAIL')) return true;
-    if (a.includes('CARD') && b.includes('CARD')) return true;
-    if (a.includes('SSN') && b.includes('SSN')) return true;
-    if (a.includes('PAN') && b.includes('PAN')) return true;
-    if (a.includes('AADHAAR') && b.includes('AADHAAR')) return true;
-    if (a.includes('IBAN') && b.includes('IBAN')) return true;
-    if (a.includes('API_KEY') && b.includes('API_KEY')) return true;
+    const normA = typeA.toUpperCase().replace(/[- ]/g, '_');
+    const normB = typeB.toUpperCase().replace(/[- ]/g, '_');
+    if (normA === normB) return true;
+    if ((normA.includes('NAME') || normA.includes('PERSON')) && (normB.includes('NAME') || normB.includes('PERSON'))) return true;
+    if ((normA.includes('BIRTH') || normA.includes('DOB')) && (normB.includes('BIRTH') || normB.includes('DOB'))) return true;
+    if ((normA.includes('ADDRESS') || normA.includes('LOCATION') || normA.includes('CITY')) && (normB.includes('ADDRESS') || normB.includes('LOCATION') || normB.includes('CITY'))) return true;
+    if (normA.includes('PHONE') && normB.includes('PHONE')) return true;
+    if (normA.includes('EMAIL') && normB.includes('EMAIL')) return true;
+    if (normA.includes('CARD') && normB.includes('CARD')) return true;
+    if (normA.includes('SSN') && normB.includes('SSN')) return true;
+    if (normA.includes('PAN') && normB.includes('PAN')) return true;
+    if (normA.includes('AADHAAR') && normB.includes('AADHAAR')) return true;
+    if (normA.includes('IBAN') && normB.includes('IBAN')) return true;
+    if ((normA.includes('API_KEY') || normA.includes('AUTH_TOKEN')) && (normB.includes('API_KEY') || normB.includes('AUTH_TOKEN'))) return true;
+    if (normA.includes('PASSPORT') && normB.includes('PASSPORT')) return true;
+    if ((normA.includes('DRIVING_LICENSE') || normA.includes('DL')) && (normB.includes('DRIVING_LICENSE') || normB.includes('DL'))) return true;
     return false;
   }
 
-  private static extractRawCandidates(text: string): CandidateInput[] {
-    const candidates: CandidateInput[] = [];
-
-    // 1. Emails
-    const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
-    let m: RegExpExecArray | null;
-    while ((m = emailRegex.exec(text)) !== null) {
-      candidates.push({
-        type: 'EMAIL_ADDRESS',
-        label: 'EMAIL',
-        value: m[0],
-        startOffset: m.index,
-        endOffset: m.index + m[0].length,
-        detector: 'EmailRegex',
-        confidence: 0.99,
-        reason: 'RFC-5322 email syntax.',
+  private static async extractRawCandidates(
+    text: string,
+    detectors: IPIIDetector[]
+  ): Promise<CandidateInput[]> {
+    const rawDetected: RawDetectedCandidate[] = [];
+    for (const detector of detectors) {
+      const results = await detector.detect(text, {
+        documentId: 'benchmark_doc',
+        organizationId: 'benchmark_org',
+        fullText: text,
       });
+      rawDetected.push(...results);
     }
 
-    // 2. Phones
-    const phoneRegex = /(?:\+\d{1,3}[\s-]?)?(?:\(?\d{2,4}\)?[\s-]?)?\d{3,5}[\s-]?\d{4,5}\b|\b[6-9]\d{9}\b/g;
-    while ((m = phoneRegex.exec(text)) !== null) {
-      const val = m[0].trim();
-      const digits = val.replace(/\D/g, '');
-      if (digits.length >= 10 && digits.length <= 15) {
-        candidates.push({
-          type: 'PHONE_NUMBER',
-          label: 'PHONE',
-          value: val,
-          startOffset: m.index,
-          endOffset: m.index + val.length,
-          detector: 'PhoneRegex',
-          confidence: 0.95,
-          reason: 'E.164 phone number pattern.',
-        });
-      }
-    }
+    const merged = mergeCandidates(rawDetected);
 
-    // 3. Credit Cards (Luhn algorithm)
-    const cardRegex = /\b(?:\d{4}[ -]?){3}\d{4}\b|\b\d{13,19}\b/g;
-    while ((m = cardRegex.exec(text)) !== null) {
-      const val = m[0].trim();
-      const clean = val.replace(/\D/g, '');
-      let isLuhn = false;
-      if (clean.length >= 13 && clean.length <= 19) {
-        let sum = 0;
-        let dbl = false;
-        for (let i = clean.length - 1; i >= 0; i--) {
-          let d = parseInt(clean.charAt(i), 10);
-          if (dbl) {
-            d *= 2;
-            if (d > 9) d -= 9;
-          }
-          sum += d;
-          dbl = !dbl;
-        }
-        isLuhn = sum % 10 === 0;
-      }
-      candidates.push({
-        type: 'CREDIT_CARD',
-        label: 'CARD',
-        value: val,
-        startOffset: m.index,
-        endOffset: m.index + val.length,
-        detector: isLuhn ? 'CreditCardLuhn' : 'CardPattern',
-        confidence: isLuhn ? 0.99 : 0.6,
-        reason: isLuhn ? 'Luhn checksum verified.' : 'Format match without Luhn.',
-      });
-    }
-
-    // 4. PAN
-    const panRegex = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g;
-    while ((m = panRegex.exec(text)) !== null) {
-      candidates.push({
-        type: 'PAN_NUMBER',
-        label: 'PAN',
-        value: m[0],
-        startOffset: m.index,
-        endOffset: m.index + m[0].length,
-        detector: 'PANDirect',
-        confidence: 0.96,
-        reason: 'Income Tax PAN format.',
-      });
-    }
-
-    // 5. Aadhaar
-    const aadhaarRegex = /\b\d{4}[ -]?\d{4}[ -]?\d{4}\b/g;
-    while ((m = aadhaarRegex.exec(text)) !== null) {
-      candidates.push({
-        type: 'AADHAAR_NUMBER',
-        label: 'AADHAAR',
-        value: m[0],
-        startOffset: m.index,
-        endOffset: m.index + m[0].length,
-        detector: 'AadhaarRegex',
-        confidence: 0.98,
-        reason: '12-digit UIDAI format.',
-      });
-    }
-
-    // 6. IBAN
-    const ibanRegex = /\b[A-Z]{2}\d{2}(?:\s?[A-Za-z0-9]{4}){2,7}(?:\s?[A-Za-z0-9]{1,4})?\b/g;
-    while ((m = ibanRegex.exec(text)) !== null) {
-      candidates.push({
-        type: 'IBAN_NUMBER',
-        label: 'IBAN',
-        value: m[0],
-        startOffset: m.index,
-        endOffset: m.index + m[0].length,
-        detector: 'IBANRegex',
-        confidence: 0.99,
-        reason: 'ISO 13616 IBAN format.',
-      });
-    }
-
-    // 7. SSN
-    const ssnRegex = /\b\d{3}[ -]\d{2}[ -]\d{4}\b/g;
-    while ((m = ssnRegex.exec(text)) !== null) {
-      candidates.push({
-        type: 'US_SSN',
-        label: 'SSN',
-        value: m[0],
-        startOffset: m.index,
-        endOffset: m.index + m[0].length,
-        detector: 'SSNRegex',
-        confidence: 0.95,
-        reason: 'SSA 9-digit format.',
-      });
-    }
-
-    // 8. API Key
-    const keyRegex = /\bAKIA[0-9A-Z]{16}\b/g;
-    while ((m = keyRegex.exec(text)) !== null) {
-      candidates.push({
-        type: 'API_KEY',
-        label: 'API KEY',
-        value: m[0],
-        startOffset: m.index,
-        endOffset: m.index + m[0].length,
-        detector: 'APIKeyRegex',
-        confidence: 1.0,
-        reason: 'AWS Access Key ID format.',
-      });
-    }
-
-    // 9. DOB
-    const dobRegex = /(?:DOB|Date of birth|Birth Date|Born)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/gi;
-    while ((m = dobRegex.exec(text)) !== null) {
-      const val = m[1];
-      const offset = m[0].indexOf(val);
-      candidates.push({
-        type: 'DATE_OF_BIRTH',
-        label: 'BIRTH',
-        value: val,
-        startOffset: m.index + offset,
-        endOffset: m.index + offset + val.length,
-        detector: 'DOBContextRegex',
-        confidence: 0.95,
-        reason: 'Date preceded by DOB context.',
-      });
-    }
-
-    // 10. Address
-    const addrRegex = /\b\d{1,5}\s+[A-Za-z0-9\s,.-]+(?:Road|Street|Avenue|Drive|Way|Bangalore|Mumbai|Kolkata)\b/gi;
-    while ((m = addrRegex.exec(text)) !== null) {
-      candidates.push({
-        type: 'STREET_ADDRESS',
-        label: 'ADDRESS',
-        value: m[0],
-        startOffset: m.index,
-        endOffset: m.index + m[0].length,
-        detector: 'AddressRegex',
-        confidence: 0.85,
-        reason: 'Street entity with geographic location.',
-      });
-    }
-
-    // 11. Contextual Person Names
-    const nameRegex = /(?:Patient Name|Employee Name|Account Holder|Customer Name|Authorized Representative|Attending Physician|Reporting Manager|Dr\.|Mr\.)[:\s]+(?:(?:Dr\.|Mr\.|Mrs\.|Ms\.)\s+)?([A-Z][a-z]+(?:[^\S\r\n]+[A-Z][a-z]+)+)/g;
-    while ((m = nameRegex.exec(text)) !== null) {
-      const rawVal = m[1].trim();
-      const val = rawVal.replace(/^(?:Dr\.|Mr\.|Mrs\.|Ms\.|Prof\.)\s+/i, '');
-      const offset = m[0].lastIndexOf(val);
-      candidates.push({
-        type: 'PERSON_NAME',
-        label: 'NAME',
-        value: val,
-        startOffset: m.index + offset,
-        endOffset: m.index + offset + val.length,
-        detector: 'ContextualNameRegex',
-        confidence: 0.92,
-        reason: 'Person name preceded by formal role marker.',
-      });
-    }
-
-    return candidates;
+    return merged.map((cand) => ({
+      type: cand.type,
+      label: cand.type,
+      value: cand.text,
+      startOffset: cand.startOffset,
+      endOffset: cand.endOffset,
+      detector: cand.detectorName,
+      confidence: cand.confidence,
+      reason: cand.evidence?.join(', ') || 'Production detector match',
+    }));
   }
 }

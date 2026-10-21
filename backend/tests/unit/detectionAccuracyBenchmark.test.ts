@@ -1,11 +1,16 @@
+process.env.NER_SERVICE_URL = process.env.NER_SERVICE_URL || 'http://localhost:8001';
+
 import fs from 'fs';
 import path from 'path';
 import { BenchmarkRunner, SyntheticDocumentRecord } from '../../src/evaluation/benchmarkRunner';
+import { PIIDetectorRegistry } from '../../src/services/pii/detectors/detector.registry';
 
 describe('PII Detection Accuracy Benchmark — High Recall + High Precision', () => {
   let corpus: SyntheticDocumentRecord[] = [];
 
   beforeAll(() => {
+    // Reset registry so it picks up NER_SERVICE_URL
+    (PIIDetectorRegistry as unknown as { instance?: unknown }).instance = undefined;
     const corpusPath = path.resolve(__dirname, '../gold-standard/syntheticCorpus.json');
     const rawData = fs.readFileSync(corpusPath, 'utf-8');
     corpus = JSON.parse(rawData);
@@ -17,8 +22,8 @@ describe('PII Detection Accuracy Benchmark — High Recall + High Precision', ()
     expect(totalEntities).toBeGreaterThanOrEqual(20);
   });
 
-  it('achieves high recall (>= 95%) with zero silently missed ground-truth PII', () => {
-    const report = BenchmarkRunner.evaluateCorpus(corpus);
+  it('achieves high recall (>= 95%) with zero silently missed ground-truth PII', async () => {
+    const report = await BenchmarkRunner.evaluateCorpus(corpus);
 
     console.log('\n================================================================================');
     console.log('              PII DETECTION BENCHMARK REPORT (GOLD STANDARD)                    ');
