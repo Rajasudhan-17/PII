@@ -35,6 +35,11 @@ export class EmailDetector implements IPIIDetector {
       const relativeStart = match.index;
       const relativeEnd = relativeStart + matchText.length;
 
+      // Precision guard: generic organizational mailboxes are non-personal corporate contacts
+      if (/^(?:support|sales|info|contact|help|billing|marketing|careers|press)@/i.test(matchText)) {
+        continue;
+      }
+
       const absoluteStart = blockStartOffset + relativeStart;
       const absoluteEnd = blockStartOffset + relativeEnd;
 

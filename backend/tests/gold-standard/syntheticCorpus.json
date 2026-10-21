@@ -1,0 +1,61 @@
+[
+  {
+    "document": "medical_001.txt",
+    "documentType": "MEDICAL",
+    "text": "METROPOLITAN GENERAL HOSPITAL - CLINICAL INTAKE RECORD\nPatient Name: Ananya Krishnan\nDOB: 17/08/1988\nMRN: MRN-89421-B\nPrimary Phone: +91 98765 43210\nEmail: ananya.k@health-mail.example\nResidential Address: 42 Lakeview Road, Bangalore\nDiagnosis: Acute bronchitis.\nAttending Physician: Dr. Vikram Seth\nHospital Department: Pulmonary Medicine, Ward 4B",
+    "entities": [
+      { "type": "PERSON_NAME", "text": "Ananya Krishnan" },
+      { "type": "DATE_OF_BIRTH", "text": "17/08/1988" },
+      { "type": "PHONE_NUMBER", "text": "+91 98765 43210" },
+      { "type": "EMAIL_ADDRESS", "text": "ananya.k@health-mail.example" },
+      { "type": "STREET_ADDRESS", "text": "42 Lakeview Road, Bangalore" },
+      { "type": "PERSON_NAME", "text": "Vikram Seth" }
+    ]
+  },
+  {
+    "document": "financial_002.txt",
+    "documentType": "FINANCIAL",
+    "text": "GLOBAL REMITTANCE & SETTLEMENT ADVICE\nAccount Holder: Rahul Deshmukh\nCustomer PAN: ABCDE1234F\nSettlement IBAN: GB82 WEST 1234 5698 7654 32\nExpense Card: 4532 0151 1283 0366\nBilling Address: 15 Marine Drive, Mumbai\nInvoice Number: 20261047\nTax ID: GSTIN27AABCS1429B1Z\nSupport Inquiries: support@globalremit.example\nCorporate Entity: Global Remit Financial Services Inc.",
+    "entities": [
+      { "type": "PERSON_NAME", "text": "Rahul Deshmukh" },
+      { "type": "PAN_NUMBER", "text": "ABCDE1234F" },
+      { "type": "IBAN_NUMBER", "text": "GB82 WEST 1234 5698 7654 32" },
+      { "type": "CREDIT_CARD", "text": "4532 0151 1283 0366" },
+      { "type": "STREET_ADDRESS", "text": "15 Marine Drive, Mumbai" }
+    ]
+  },
+  {
+    "document": "hr_employment_003.txt",
+    "documentType": "HR",
+    "text": "CONFIDENTIAL EMPLOYMENT CONTRACT\nEmployee Name: Sneha Sundaram\nDate of Birth: 24/11/1992\nNational Aadhaar: 2345 6789 0124\nPersonal Email: sneha.s@mailbox.example\nDirect Phone: +91 91234 56789\nDesignation: Senior Data Engineer\nDepartment: Cloud Infrastructure\nReporting Manager: Arun Mehta\nCompany: Northwind Technologies Pvt Ltd\nTerms and Conditions: Standard annual leave policy applies.",
+    "entities": [
+      { "type": "PERSON_NAME", "text": "Sneha Sundaram" },
+      { "type": "DATE_OF_BIRTH", "text": "24/11/1992" },
+      { "type": "AADHAAR_NUMBER", "text": "2345 6789 0124" },
+      { "type": "EMAIL_ADDRESS", "text": "sneha.s@mailbox.example" },
+      { "type": "PHONE_NUMBER", "text": "+91 91234 56789" },
+      { "type": "PERSON_NAME", "text": "Arun Mehta" }
+    ]
+  },
+  {
+    "document": "legal_agreement_004.txt",
+    "documentType": "LEGAL",
+    "text": "MUTUAL NONDISCLOSURE AGREEMENT\nThis Agreement is entered into by and between Acme Corporation, an Ohio corporation, and John Smith LLP.\nAuthorized Representative: David Vance\nOfficial Signatory Email: david.vance@executive-network.example\nWitness SSN: 123-45-6789\nCase Number: 2026/1047\nProduct Code: ABC12345\nJurisdiction: The parties agree that Delaware court shall have exclusive jurisdiction.\nTerms and conditions are governed by statutory law.",
+    "entities": [
+      { "type": "PERSON_NAME", "text": "David Vance" },
+      { "type": "EMAIL_ADDRESS", "text": "david.vance@executive-network.example" },
+      { "type": "US_SSN", "text": "123-45-6789" }
+    ]
+  },
+  {
+    "document": "customer_support_005.txt",
+    "documentType": "CUSTOMER_SUPPORT",
+    "text": "CUSTOMER SUPPORT HELPDESK TICKET #9941\nCustomer Name: Maya Patel\nRegistered Phone: +91 99887 76655\nReported Issue: Unable to access account.\nCustomer Address: 88 Park Street, Kolkata\nAPI Key Exposed in logs: AKIAIOSFODNN7EXAMPLE\nAssigned Agent: Customer Support Team\nPublic Help Center: support@example.com\nTerms of Service: https://example.com/terms",
+    "entities": [
+      { "type": "PERSON_NAME", "text": "Maya Patel" },
+      { "type": "PHONE_NUMBER", "text": "+91 99887 76655" },
+      { "type": "STREET_ADDRESS", "text": "88 Park Street, Kolkata" },
+      { "type": "API_KEY", "text": "AKIAIOSFODNN7EXAMPLE" }
+    ]
+  }
+]

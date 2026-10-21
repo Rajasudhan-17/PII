@@ -1,5 +1,17 @@
 import JSZip from 'jszip';
+import { inflate as pakoInflate, deflate as pakoDeflate } from 'pako';
+import * as pdfjsLib from 'pdfjs-dist';
 import { FindingItem, LookStyle, RuleSet } from '../context/RedactContext';
+import { EvidenceAggregator, CandidateInput } from './evidenceAggregator';
+
+// Configure pdfjs worker if available in browser
+if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || '3.11.174'}/pdf.worker.min.js`;
+  } catch {
+    // Ignore worker initialization in non-browser / sandbox environments
+  }
+}
 
 // ── CHECKSUM & VALIDATION ALGORITHMS ──────────────────────────────────────────
 
@@ -102,17 +114,364 @@ export async function computeSHA256(content: string | ArrayBuffer): Promise<stri
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// ── ASCII85 & PDF STREAM PARSING UTILITIES ───────────────────────────────────
+
+export function decodeAscii85(str: string): Uint8Array {
+  let clean = str.replace(/\s+/g, '');
+  if (clean.startsWith('<~')) clean = clean.slice(2);
+  if (clean.endsWith('~>')) clean = clean.slice(0, -2);
+  const bytes: number[] = [];
+  let tuple = 0;
+  let count = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean.charCodeAt(i);
+    if (c === 122 && count === 0) {
+      bytes.push(0, 0, 0, 0);
+      continue;
+    }
+    if (c >= 33 && c <= 117) {
+      tuple = tuple * 85 + (c - 33);
+      count++;
+      if (count === 5) {
+        bytes.push((tuple >> 24) & 0xff, (tuple >> 16) & 0xff, (tuple >> 8) & 0xff, tuple & 0xff);
+        tuple = 0;
+        count = 0;
+      }
+    }
+  }
+  if (count > 0) {
+    for (let i = count; i < 5; i++) tuple = tuple * 85 + 84;
+    for (let i = 0; i < count - 1; i++) bytes.push((tuple >> (24 - i * 8)) & 0xff);
+  }
+  return new Uint8Array(bytes);
+}
+
+export function encodeAscii85(buf: Uint8Array): string {
+  let res = '';
+  let tuple = 0;
+  let count = 0;
+  for (let i = 0; i < buf.length; i++) {
+    tuple = tuple * 256 + buf[i];
+    count++;
+    if (count === 4) {
+      if (tuple === 0) {
+        res += 'z';
+      } else {
+        const c: string[] = [];
+        for (let j = 0; j < 5; j++) {
+          c.unshift(String.fromCharCode(33 + (tuple % 85)));
+          tuple = Math.floor(tuple / 85);
+        }
+        res += c.join('');
+      }
+      tuple = 0;
+      count = 0;
+    }
+  }
+  if (count > 0) {
+    const pad = 4 - count;
+    for (let i = 0; i < pad; i++) tuple = tuple * 256;
+    const c: string[] = [];
+    for (let j = 0; j < 5; j++) {
+      c.unshift(String.fromCharCode(33 + (tuple % 85)));
+      tuple = Math.floor(tuple / 85);
+    }
+    res += c.slice(0, count + 1).join('');
+  }
+  return res + '~>';
+}
+
+function extractTextFromRawPdfBuffer(arrayBuffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  const len = bytes.length;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+
+  let extracted = '';
+  const streamPattern = /(\d+\s+\d+\s+obj\s*<<((?:(?!<<|>>)[\s\S])*?)>>\s*stream\r?\n?)([\s\S]*?)(endstream)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = streamPattern.exec(binary)) !== null) {
+    const header = match[1];
+    const rawBody = match[3];
+    let bodyBytes: Uint8Array;
+
+    try {
+      if (header.includes('ASCII85Decode')) {
+        bodyBytes = decodeAscii85(rawBody);
+      } else {
+        const u8 = new Uint8Array(rawBody.length);
+        for (let j = 0; j < rawBody.length; j++) u8[j] = rawBody.charCodeAt(j);
+        bodyBytes = u8;
+      }
+
+      if (header.includes('FlateDecode')) {
+        const inflated = pakoInflate(bodyBytes);
+        let streamStr = '';
+        for (let k = 0; k < inflated.length; k++) streamStr += String.fromCharCode(inflated[k]);
+
+        // Extract string tokens inside (text) Tj or [(array)] TJ
+        const tjMatches = streamStr.match(/\((?:[^()\\]|\\.)*\)\s*Tj/g) || [];
+        const tjTexts = tjMatches.map((m) => m.replace(/\s*Tj$/, '').slice(1, -1));
+
+        const tjArrayMatches = streamStr.match(/\[([\s\S]*?)\]\s*TJ/g) || [];
+        const arrayTexts: string[] = [];
+        for (const arr of tjArrayMatches) {
+          const innerMatches = arr.match(/\((?:[^()\\]|\\.)*\)/g) || [];
+          arrayTexts.push(innerMatches.map((im) => im.slice(1, -1)).join(''));
+        }
+
+        extracted += '\n' + [...tjTexts, ...arrayTexts].join('\n');
+      }
+    } catch {
+      // ignore corrupt stream
+    }
+  }
+
+  // Also extract top-level literal strings
+  const textMatches = binary.match(/\(([^)]{3,})\)/g) || [];
+  extracted += '\n' + textMatches.map((m) => m.slice(1, -1)).join('\n');
+
+  return extracted.trim();
+}
+
+/**
+ * Universal PDF extraction engine:
+ * 1. Fast backend extraction with Tesseract OCR fallback
+ * 2. Client-side pdfjs-dist structured coordinate-based extraction
+ * 3. Client-side Tesseract OCR for scanned PDF pages
+ * 4. Stream decompression fallback
+ */
+export async function extractPdfText(
+  arrayBuffer: ArrayBuffer,
+  file?: File,
+  forceOcr?: boolean
+): Promise<{ text: string; lineCount: number; isOcr: boolean; method: string }> {
+  // 1. Try backend scan extraction first if file is available
+  if (file && typeof fetch !== 'undefined') {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (forceOcr) {
+        formData.append('ocr', 'true');
+      }
+      const response = await fetch('/api/v1/scan/extract', {
+        method: 'POST',
+        body: formData,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.success && data.text && data.text.trim().length > 0) {
+          const lines = data.text.split('\n');
+          return {
+            text: data.text,
+            lineCount: lines.length,
+            isOcr: data.method === 'OCR',
+            method: data.method || 'NATIVE_TEXT',
+          };
+        }
+      }
+    } catch {
+      // Backend not running or unreachable, continue to client-side extraction
+    }
+  }
+
+  // 2. Client-side PDF extraction with pdfjs-dist
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(arrayBuffer.slice(0)),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: true,
+    });
+    const pdfDoc = await loadingTask.promise;
+    const pageTexts: string[] = [];
+
+    for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+      const textContent = await page.getTextContent();
+
+      // Group items by line according to their vertical position
+      const lineMap = new Map<number, Array<{ x: number; text: string }>>();
+      for (const item of textContent.items as Array<{ str?: string; transform?: number[] }>) {
+        if (!item.str || item.str.trim().length === 0) continue;
+        const y = item.transform ? Math.round(item.transform[5]) : 0;
+        const x = item.transform ? Math.round(item.transform[4]) : 0;
+
+        let bucketY: number | null = null;
+        for (const existingY of lineMap.keys()) {
+          if (Math.abs(existingY - y) <= 4) {
+            bucketY = existingY;
+            break;
+          }
+        }
+        if (bucketY === null) {
+          bucketY = y;
+          lineMap.set(bucketY, []);
+        }
+        lineMap.get(bucketY)!.push({ x, text: item.str });
+      }
+
+      // Sort lines top-to-bottom (descending Y in PDF coordinates)
+      const sortedYs = Array.from(lineMap.keys()).sort((a, b) => b - a);
+      const pageLines: string[] = [];
+      for (const y of sortedYs) {
+        const items = lineMap.get(y)!;
+        items.sort((a, b) => a.x - b.x);
+        pageLines.push(items.map((i) => i.text).join(' '));
+      }
+
+      if (pageLines.length > 0) {
+        pageTexts.push(pageLines.join('\n'));
+      }
+    }
+
+    const combinedText = pageTexts.join('\n\n');
+    if (combinedText.trim().length >= 25 && !forceOcr) {
+      const lines = combinedText.split('\n');
+      return {
+        text: combinedText,
+        lineCount: lines.length,
+        isOcr: false,
+        method: 'NATIVE_TEXT',
+      };
+    }
+
+    // 3. If native text is empty/sparse (e.g. scanned image PDF) and in browser with canvas:
+    if (typeof document !== 'undefined' && (forceOcr || combinedText.trim().length < 25)) {
+      try {
+        const ocrPageTexts: string[] = [];
+        for (let pageNum = 1; pageNum <= Math.min(pdfDoc.numPages, 10); pageNum++) {
+          const page = await pdfDoc.getPage(pageNum);
+          const viewport = page.getViewport({ scale: 2.0 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (page.render as any)({ canvasContext: ctx, viewport }).promise;
+            const { createWorker } = await import('tesseract.js');
+            const worker = await createWorker('eng');
+            const ret = await worker.recognize(canvas);
+            await worker.terminate();
+            if (ret.data.text && ret.data.text.trim().length > 0) {
+              ocrPageTexts.push(ret.data.text.trim());
+            }
+          }
+        }
+        if (ocrPageTexts.length > 0) {
+          const ocrCombined = ocrPageTexts.join('\n\n');
+          return {
+            text: ocrCombined,
+            lineCount: ocrCombined.split('\n').length,
+            isOcr: true,
+            method: 'OCR',
+          };
+        }
+      } catch (ocrErr) {
+        console.warn('Browser Tesseract OCR fallback failed:', ocrErr);
+      }
+    }
+
+    if (combinedText.trim().length > 0) {
+      return {
+        text: combinedText,
+        lineCount: combinedText.split('\n').length,
+        isOcr: false,
+        method: 'NATIVE_TEXT',
+      };
+    }
+  } catch (pdfJsErr) {
+    console.warn('pdfjs extraction failed, falling back to stream parsing:', pdfJsErr);
+  }
+
+  // 4. Raw stream decompressed fallback
+  const streamText = extractTextFromRawPdfBuffer(arrayBuffer);
+  return {
+    text: streamText || 'No readable text could be found in PDF.',
+    lineCount: streamText.split('\n').length,
+    isOcr: false,
+    method: 'STREAM_DECODE',
+  };
+}
+
 // ── DOCUMENT FILE PARSER ─────────────────────────────────────────────────────
 
 export interface ParsedDocument {
   text: string;
-  format: 'DOCX' | 'CSV' | 'TXT' | 'PDF';
+  format: 'DOCX' | 'CSV' | 'TXT' | 'PDF' | 'IMAGE';
   rawZip?: JSZip;
+  rawBytes?: Uint8Array;
   lineCount: number;
+  isOcr?: boolean;
 }
 
-export async function parseUploadedFile(file: File): Promise<ParsedDocument> {
+export async function parseUploadedFile(
+  file: File,
+  options?: { forceOcr?: boolean }
+): Promise<ParsedDocument> {
   const ext = file.name.split('.').pop()?.toUpperCase() || 'TXT';
+
+  if (ext === 'PDF') {
+    const arrayBuffer = await file.arrayBuffer();
+    const rawBytes = new Uint8Array(arrayBuffer);
+    const pdfRes = await extractPdfText(arrayBuffer, file, options?.forceOcr);
+    return {
+      text: pdfRes.text,
+      format: 'PDF',
+      rawBytes,
+      lineCount: pdfRes.lineCount,
+      isOcr: pdfRes.isOcr,
+    };
+  }
+
+  if (['PNG', 'JPG', 'JPEG', 'TIF', 'TIFF', 'WEBP'].includes(ext)) {
+    let ocrText = '';
+    // Try backend OCR first
+    if (typeof fetch !== 'undefined') {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/api/v1/scan/extract', {
+          method: 'POST',
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.text) {
+            ocrText = data.text;
+          }
+        }
+      } catch {
+        // Continue to client OCR
+      }
+    }
+
+    // Client-side Tesseract fallback
+    if (!ocrText) {
+      try {
+        const { createWorker } = await import('tesseract.js');
+        const worker = await createWorker('eng');
+        const ret = await worker.recognize(file);
+        await worker.terminate();
+        ocrText = ret.data.text.trim();
+      } catch (err) {
+        console.warn('Browser image OCR fallback failed:', err);
+      }
+    }
+
+    const text = ocrText || 'Image OCR processing produced no text.';
+    const lines = text.split('\n');
+    return {
+      text,
+      format: 'IMAGE',
+      lineCount: lines.length,
+      isOcr: true,
+    };
+  }
 
   if (ext === 'DOCX') {
     try {
@@ -444,58 +803,41 @@ export function detectPII(text: string, ruleSet: RuleSet): FindingItem[] {
     }
   }
 
-  // 13. RuleSet Custom Tags: Never Redact
-  const neverRedactSet = new Set((ruleSet.neverRedact || []).map((t) => t.trim().toLowerCase()));
+  // Convert raw candidate matches to CandidateInput for multi-evidence aggregation
+  const candidateInputs: CandidateInput[] = candidates.map((c) => ({
+    type: c.type,
+    label: c.label,
+    value: c.value,
+    detector: c.type === 'CUSTOM_ALWAYS' ? 'RuleSet:AlwaysRedact' : 'RegexPatternEngine',
+    confidence: c.confidence / 100,
+    evidence: [c.reason || 'Pattern and formatting verified.'],
+    reason: c.reason,
+  }));
 
-  // ── DEDUPLICATE & AGGREGATE CANDIDATES ───────────────────────────────────────
-  const uniqueMap = new Map<string, CandidateMatch>();
-  for (const c of candidates) {
-    const key = c.value.toLowerCase();
-    const existing = uniqueMap.get(key);
-    if (!existing || c.confidence > existing.confidence) {
-      uniqueMap.set(key, c);
-    }
-  }
+  const enhanced = EvidenceAggregator.aggregateAndDecide(text, candidateInputs, {
+    detectors: ruleSet.detectors,
+    alwaysRedact: ruleSet.alwaysRedact,
+    neverRedact: ruleSet.neverRedact,
+    confidenceThreshold: ruleSet.confidenceThreshold,
+  });
 
-  // Count occurrences (places) in text and assign initial status
-  const findings: FindingItem[] = [];
-  let index = 1;
-
-  for (const [lowerVal, item] of uniqueMap.entries()) {
-    // Count exact places
-    const esc = item.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`\\b${esc}\\b`, 'gi');
-    const matchCount = (text.match(regex) || []).length || (text.toLowerCase().split(lowerVal).length - 1);
-    const places = Math.max(1, matchCount);
-
-    const isNever = neverRedactSet.has(lowerVal);
-    let status: 'review' | 'redact' | 'keep';
-
-    if (isNever) {
-      status = 'keep';
-    } else if (item.isAlwaysRedact) {
-      status = 'redact';
-    } else if (item.confidence >= (ruleSet.confidenceThreshold || 60)) {
-      status = 'redact';
-    } else {
-      status = 'review';
-    }
-
-    findings.push({
-      id: `finding_${index++}_${encodeURIComponent(item.value).slice(0, 16)}`,
-      type: item.type,
-      label: item.label,
-      value: item.value,
-      confidence: item.confidence,
-      sureText: `${item.confidence}% sure`,
-      places,
-      reason: item.reason,
-      status,
-      source: 'automatic',
-    });
-  }
-
-  return findings;
+  return enhanced.map((item, idx) => ({
+    id: item.id || `finding_${idx + 1}_${encodeURIComponent(item.value || '').slice(0, 16)}`,
+    type: item.type,
+    label: item.label || item.type,
+    value: item.value || '',
+    confidence: Math.round(item.confidence * 100),
+    sureText: `${Math.round(item.confidence * 100)}% sure`,
+    places: item.places || 1,
+    reason: item.evidence.map((e) => e.reason).join(' · '),
+    status: item.decision === 'REDACT' ? 'redact' : item.decision === 'KEEP' ? 'keep' : 'review',
+    source: 'automatic',
+    evidence: item.evidence,
+    contextScore: item.contextScore,
+    detectorAgreement: item.detectorAgreement,
+    riskScore: item.riskScore,
+    documentType: item.documentType,
+  }));
 }
 
 // ── REDACTION APPLICATION TO TEXT ───────────────────────────────────────────
@@ -693,6 +1035,145 @@ export async function generateSanitizedDocx(
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   });
+}
+
+// ── REAL PDF REDACTION & STREAM SANITIZATION ──────────────────────────────────
+
+export function generateSanitizedPdf(
+  originalPdfBytes: Uint8Array,
+  findings: FindingItem[],
+  look: LookStyle
+): Uint8Array {
+  let binary = '';
+  for (let i = 0; i < originalPdfBytes.length; i++) {
+    binary += String.fromCharCode(originalPdfBytes[i]);
+  }
+
+  const redactList = findings.filter((f) => f.status === 'redact');
+  const sorted = [...redactList].sort((a, b) => b.value.length - a.value.length);
+
+  const streamRegex = /(\d+\s+\d+\s+obj\s*<<((?:(?!<<|>>)[\s\S])*?)>>\s*stream\r?\n?)([\s\S]*?)(endstream)/g;
+  let match: RegExpExecArray | null;
+  const replacements: Array<{ start: number; end: number; chunk: string }> = [];
+
+  while ((match = streamRegex.exec(binary)) !== null) {
+    const full = match[0];
+    const header = match[1];
+    const rawBody = match[3];
+    const footer = match[4];
+
+    let decompressedText = '';
+    let isDecompressed = false;
+
+    try {
+      if (header.includes('ASCII85Decode') && header.includes('FlateDecode')) {
+        const cleanA85 = rawBody.replace(/[\r\n\s]/g, '');
+        const deflated = decodeAscii85(cleanA85);
+        const inflated = pakoInflate(deflated);
+        let s = '';
+        for (let k = 0; k < inflated.length; k++) s += String.fromCharCode(inflated[k]);
+        decompressedText = s;
+        isDecompressed = true;
+      } else if (header.includes('FlateDecode')) {
+        const u8 = new Uint8Array(rawBody.length);
+        for (let j = 0; j < rawBody.length; j++) u8[j] = rawBody.charCodeAt(j);
+        const inflated = pakoInflate(u8);
+        let s = '';
+        for (let k = 0; k < inflated.length; k++) s += String.fromCharCode(inflated[k]);
+        decompressedText = s;
+        isDecompressed = true;
+      }
+    } catch {
+      isDecompressed = false;
+    }
+
+    if (isDecompressed && decompressedText.length > 0) {
+      let modified = false;
+      for (const item of sorted) {
+        const target = item.value;
+        const rep = look === 'bar' ? '[REDACTED]' : getRedactionReplacement(target, item.label, look);
+
+        if (decompressedText.includes(target)) {
+          decompressedText = decompressedText.split(target).join(rep);
+          modified = true;
+        }
+
+        const escapedTarget = `(${target})`;
+        const escapedRep = `(${rep})`;
+        if (decompressedText.includes(escapedTarget)) {
+          decompressedText = decompressedText.split(escapedTarget).join(escapedRep);
+          modified = true;
+        }
+
+        const pdfLiteralTarget = target.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+        if (decompressedText.includes(pdfLiteralTarget)) {
+          decompressedText = decompressedText.split(pdfLiteralTarget).join(rep);
+          modified = true;
+        }
+
+        if (target.includes('\n')) {
+          const lines = target.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 2);
+          for (const line of lines) {
+            if (decompressedText.includes(line)) {
+              decompressedText = decompressedText.split(line).join('[REDACTED]');
+              modified = true;
+            }
+          }
+        }
+      }
+
+      if (modified) {
+        try {
+          const modBytes = new Uint8Array(decompressedText.length);
+          for (let k = 0; k < decompressedText.length; k++) {
+            modBytes[k] = decompressedText.charCodeAt(k) & 0xff;
+          }
+          const newDeflated = pakoDeflate(modBytes);
+
+          let newBody = '';
+          let newHeader = header;
+
+          if (header.includes('ASCII85Decode')) {
+            newBody = encodeAscii85(newDeflated);
+            newHeader = newHeader.replace(/\/Length\s+\d+/, `/Length ${newBody.length}`);
+          } else {
+            let defStr = '';
+            for (let m = 0; m < newDeflated.length; m++) {
+              defStr += String.fromCharCode(newDeflated[m]);
+            }
+            newBody = defStr;
+            newHeader = newHeader.replace(/\/Filter\s*\[[^\]]+\]/, '/Filter /FlateDecode');
+            newHeader = newHeader.replace(/\/Filter\s*\/ASCII85Decode/, '/Filter /FlateDecode');
+            newHeader = newHeader.replace(/\/Length\s+\d+/, `/Length ${newDeflated.length}`);
+          }
+
+          replacements.push({
+            start: match.index,
+            end: match.index + full.length,
+            chunk: newHeader + newBody + '\n' + footer,
+          });
+        } catch {
+          // Keep original stream if recompression fails
+        }
+      }
+    }
+  }
+
+  for (let i = replacements.length - 1; i >= 0; i--) {
+    const r = replacements[i];
+    binary = binary.slice(0, r.start) + r.chunk + binary.slice(r.end);
+  }
+
+  binary = binary.replace(/\/Annots\s*\[[^\]]*\]/g, '/Annots []');
+  binary = binary.replace(/\/Author\s*\([^)]*\)/gi, '/Author ()');
+  binary = binary.replace(/\/Creator\s*\([^)]*\)/gi, '/Creator (Redact Platform)');
+  binary = binary.replace(/\/Producer\s*\([^)]*\)/gi, '/Producer (Redact Platform)');
+
+  const resultBytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    resultBytes[i] = binary.charCodeAt(i) & 0xff;
+  }
+  return resultBytes;
 }
 
 // ── INDEPENDENT VERIFICATION & QA ENGINE ──────────────────────────────────────

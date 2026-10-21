@@ -15,6 +15,7 @@ export const VerifyExportPage: React.FC = () => {
   const navigate = useNavigate();
   const {
     documents,
+    currentDocumentId,
     findings,
     currentLook,
     getRunById,
@@ -23,12 +24,12 @@ export const VerifyExportPage: React.FC = () => {
     downloadReport,
   } = useRedact();
 
-  const docId = id || 'offer_letter.docx';
+  const docId = id || currentDocumentId;
   const run = getRunById(docId);
-  const doc = documents[docId] || documents['offer_letter.docx'];
-  const filename = run ? run.filename : docId;
-  const fileExt = run?.format || doc?.format || 'DOCX';
-  const cleanFilename = filename.replace(/\.(docx|csv|txt)$/i, '.redacted.$1');
+  const doc = docId ? documents[docId] : undefined;
+  const filename = run ? run.filename : doc?.filename || docId || 'document';
+  const fileExt = run?.format || doc?.format || 'FILE';
+  const cleanFilename = filename.replace(/\.(docx|csv|txt|pdf|png|jpg|jpeg)$/i, '.redacted.$1');
 
   const [hasDeleted, setHasDeleted] = useState(false);
   const [downloadSuccessToast, setDownloadSuccessToast] = useState<string | null>(null);
@@ -72,16 +73,9 @@ export const VerifyExportPage: React.FC = () => {
     return Math.max(1, ...typeDistribution.map((t) => t.count));
   }, [typeDistribution]);
 
-  // Sample diff items (top 4 redacted items)
+  // Real diff items from approved redactions
   const sampleDiffs = useMemo(() => {
-    if (redactedFindings.length > 0) {
-      return redactedFindings.slice(0, 4);
-    }
-    return [
-      { id: 'sample1', label: 'PHONE', value: '+91 98765 43210' },
-      { id: 'sample2', label: 'PAN', value: 'ABCDE1234F' },
-      { id: 'sample3', label: 'AADHAAR', value: '2345 6789 0124' },
-    ];
+    return redactedFindings.slice(0, 6);
   }, [redactedFindings]);
 
   const handleDownloadFile = async () => {
@@ -103,6 +97,29 @@ export const VerifyExportPage: React.FC = () => {
       navigate('/history');
     }, 1200);
   };
+
+  if (!doc && !run) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
+        <div className="w-16 h-16 rounded-2xl bg-white border border-[#E5E7EB] shadow-sm flex items-center justify-center mx-auto text-[#6B7280]">
+          <CheckCircle2 className="w-8 h-8 text-[#9CA3AF]" />
+        </div>
+        <h2 className="text-xl font-bold text-[#111827]">No Document Verified for Export</h2>
+        <p className="text-xs text-[#6B7280] max-w-md mx-auto">
+          Please review a document and apply redactions to view verification checks and export sanitized artifacts.
+        </p>
+        <div className="pt-2">
+          <Link
+            to="/new"
+            className="inline-flex items-center gap-2 bg-[#111827] hover:bg-black text-white text-xs font-semibold px-5 py-2.5 rounded-xl shadow-sm transition-colors"
+          >
+            <span>Start New Redaction</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
@@ -304,11 +321,15 @@ export const VerifyExportPage: React.FC = () => {
                   ORIGINAL
                 </span>
                 <div className="font-mono text-xs text-[#111827] space-y-1">
-                  {sampleDiffs.map((item, idx) => (
-                    <p key={idx}>
-                      <span className="text-[#6B7280]">{item.label}:</span> {item.value}
-                    </p>
-                  ))}
+                  {sampleDiffs.length === 0 ? (
+                    <p className="text-[#6B7280] italic">No items redacted in this run.</p>
+                  ) : (
+                    sampleDiffs.map((item, idx) => (
+                      <p key={idx}>
+                        <span className="text-[#6B7280]">{item.label}:</span> {item.value}
+                      </p>
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -318,22 +339,26 @@ export const VerifyExportPage: React.FC = () => {
                   REDACTED
                 </span>
                 <div className="font-mono text-xs text-[#111827] space-y-1">
-                  {sampleDiffs.map((item, idx) => (
-                    <p key={idx}>
-                      <span className="text-[#6B7280]">{item.label}:</span>{' '}
-                      {currentLook === 'label' ? (
-                        <span className="font-mono text-[9px] font-bold bg-[#111827] text-white px-1 py-0.2 rounded uppercase">
-                          [{item.label}]
-                        </span>
-                      ) : currentLook === 'partial' ? (
-                        <span className="font-mono text-xs font-semibold text-[#111827] bg-[#F3F4F6] px-1 rounded border border-[#E5E7EB]">
-                          •••• {item.value.replace(/\s+/g, '').slice(-4) || '••••'}
-                        </span>
-                      ) : (
-                        <span className="inline-block bg-[#111827] w-24 h-3.5 rounded-[2px] align-middle" />
-                      )}
-                    </p>
-                  ))}
+                  {sampleDiffs.length === 0 ? (
+                    <p className="text-[#6B7280] italic">Clean copy identical to source.</p>
+                  ) : (
+                    sampleDiffs.map((item, idx) => (
+                      <p key={idx}>
+                        <span className="text-[#6B7280]">{item.label}:</span>{' '}
+                        {currentLook === 'label' ? (
+                          <span className="font-mono text-[9px] font-bold bg-[#111827] text-white px-1 py-0.2 rounded uppercase">
+                            [{item.label}]
+                          </span>
+                        ) : currentLook === 'partial' ? (
+                          <span className="font-mono text-xs font-semibold text-[#111827] bg-[#F3F4F6] px-1 rounded border border-[#E5E7EB]">
+                            •••• {item.value.replace(/\s+/g, '').slice(-4) || '••••'}
+                          </span>
+                        ) : (
+                          <span className="inline-block bg-[#111827] w-24 h-3.5 rounded-[2px] align-middle" />
+                        )}
+                      </p>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

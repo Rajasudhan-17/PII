@@ -177,7 +177,25 @@ export const HistoryPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F3F4F6]">
-              {filteredRuns.length === 0 ? (
+              {runs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-xs text-[#6B7280]">
+                    <div className="max-w-xs mx-auto space-y-2">
+                      <p className="font-bold text-[#111827]">No redaction runs yet</p>
+                      <p className="text-[#6B7280]">Upload a document to detect and redact sensitive personal data.</p>
+                      <div className="pt-2">
+                        <Link
+                          to="/new"
+                          className="inline-flex items-center gap-1.5 bg-[#111827] hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded-xl transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Start new redaction</span>
+                        </Link>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredRuns.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-xs text-[#6B7280]">
                     No runs found matching current filter.

@@ -8,18 +8,22 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "test": "vitest run",
+    "test": "vitest run --pool=threads",
     "preview": "vite preview"
   },
   "dependencies": {
     "@types/jszip": "^3.4.0",
+    "@types/pako": "^2.0.4",
     "clsx": "^2.1.1",
     "jszip": "^3.10.2",
     "lucide-react": "^0.378.0",
+    "pako": "^3.0.2",
+    "pdfjs-dist": "^3.11.174",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.23.1",
-    "tailwind-merge": "^2.3.0"
+    "tailwind-merge": "^2.3.0",
+    "tesseract.js": "^5.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",

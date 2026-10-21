@@ -5,6 +5,7 @@ import {
   detectPII,
   applyRedactionsToText,
   generateSanitizedDocx,
+  generateSanitizedPdf,
   runVerificationChecks,
   computeSHA256,
   VerificationReport,
@@ -46,12 +47,17 @@ export interface FindingItem {
   reason?: string;
   status: 'review' | 'redact' | 'keep';
   source: 'automatic' | 'manual';
+  evidence?: Array<{ detector: string; score: number; reason: string }>;
+  contextScore?: number;
+  detectorAgreement?: number;
+  riskScore?: number;
+  documentType?: string;
 }
 
 export interface RedactionRun {
   id: string;
   filename: string;
-  format: 'DOCX' | 'CSV' | 'TXT' | 'PDF';
+  format: 'DOCX' | 'CSV' | 'TXT' | 'PDF' | 'IMAGE';
   size: string;
   sizeBytes: number;
   ruleSet: string;
@@ -77,13 +83,15 @@ export interface RedactionRun {
 export interface ActiveDocument {
   id: string;
   filename: string;
-  format: 'DOCX' | 'CSV' | 'TXT' | 'PDF';
+  format: 'DOCX' | 'CSV' | 'TXT' | 'PDF' | 'IMAGE';
   originalText: string;
   rawZip?: JSZip;
+  rawBytes?: Uint8Array;
   rawFile?: File;
   findings: FindingItem[];
   verifiedAt?: string;
   checks?: VerificationReport;
+  isOcr?: boolean;
 }
 
 export const DETECTOR_DEFINITIONS: DetectorDefinition[] = [
@@ -111,8 +119,8 @@ const INITIAL_RULE_SETS: RuleSet[] = [
       names: true, emails: true, phones: true, dobs: true, addresses: true,
       cards: true, ibans: true, ssn: true, aadhaar: true, pan: true, api_keys: true,
     },
-    alwaysRedact: ['Project Falcon', 'ACME-4471'],
-    neverRedact: ['hr@northwind.example', 'Northwind Traders'],
+    alwaysRedact: [],
+    neverRedact: [],
     confidenceThreshold: 90,
     defaultLook: 'bar',
   },
@@ -126,8 +134,8 @@ const INITIAL_RULE_SETS: RuleSet[] = [
       names: true, emails: true, phones: true, dobs: true, addresses: true,
       cards: false, ibans: true, ssn: true, aadhaar: true, pan: true, api_keys: false,
     },
-    alwaysRedact: ['Internal Audit'],
-    neverRedact: ['General Public'],
+    alwaysRedact: [],
+    neverRedact: [],
     confidenceThreshold: 75,
     defaultLook: 'bar',
   },
@@ -141,8 +149,8 @@ const INITIAL_RULE_SETS: RuleSet[] = [
       names: true, emails: true, phones: true, dobs: true, addresses: true,
       cards: false, ibans: false, ssn: true, aadhaar: true, pan: false, api_keys: false,
     },
-    alwaysRedact: ['Patient Record', 'Diagnosis'],
-    neverRedact: ['Clinic Staff'],
+    alwaysRedact: [],
+    neverRedact: [],
     confidenceThreshold: 80,
     defaultLook: 'label',
   },
@@ -157,7 +165,7 @@ const INITIAL_RULE_SETS: RuleSet[] = [
       cards: true, ibans: true, ssn: false, aadhaar: false, pan: false, api_keys: true,
     },
     alwaysRedact: ['CVV', 'CVC', 'PIN'],
-    neverRedact: ['Merchant ID'],
+    neverRedact: [],
     confidenceThreshold: 95,
     defaultLook: 'partial',
   },
@@ -171,7 +179,7 @@ const INITIAL_RULE_SETS: RuleSet[] = [
       names: false, emails: false, phones: false, dobs: false, addresses: false,
       cards: false, ibans: false, ssn: false, aadhaar: true, pan: true, api_keys: false,
     },
-    alwaysRedact: ['Government Proof'],
+    alwaysRedact: [],
     neverRedact: [],
     confidenceThreshold: 85,
     defaultLook: 'bar',
@@ -187,279 +195,10 @@ const INITIAL_RULE_SETS: RuleSet[] = [
       names: true, emails: true, phones: true, dobs: false, addresses: false,
       cards: true, ibans: true, ssn: true, aadhaar: false, pan: true, api_keys: true,
     },
-    alwaysRedact: ['Project Falcon', 'ACME-4471'],
-    neverRedact: ['hr@northwind.example', 'Northwind Traders'],
+    alwaysRedact: [],
+    neverRedact: [],
     confidenceThreshold: 90,
     defaultLook: 'bar',
-  },
-];
-
-export const DEFAULT_OFFER_LETTER_TEXT = `Employment Offer Letter
-12 October 2026
-
-Dear Priya Nair,
-
-We are pleased to offer you the role of Data Analyst at Northwind Traders, starting 3 November 2026. Please confirm your acceptance by replying to hr@northwind.example.
-
-YOUR DETAILS ON FILE:
-Name: Priya Nair
-Date of birth: 14/03/1989
-Email: priya.nair@mailbox.example
-Phone: +91 98765 43210
-PAN: ABCDE1234F
-Aadhaar: 2345 6789 0124
-Address: 42 Lakeview Road, Chennai
-Expense card: 4532 0151 1283 0366
-
-We look forward to welcoming you to the team.
-
-Sincerely,
-Arun Mehta
-Head of People Northwind Traders`;
-
-const INITIAL_FINDINGS: FindingItem[] = [
-  {
-    id: 'finding_northwind',
-    type: 'NAME',
-    label: 'NAME',
-    value: 'Northwind Traders',
-    confidence: 55,
-    sureText: '55% sure',
-    places: 2,
-    reason: 'Looks like a company, not a person.',
-    status: 'review',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_arun',
-    type: 'NAME',
-    label: 'NAME',
-    value: 'Arun Mehta',
-    confidence: 62,
-    sureText: '62% sure',
-    places: 1,
-    reason: 'Appears on a signature line.',
-    status: 'review',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_priya',
-    type: 'PERSON_NAME',
-    label: 'NAME',
-    value: 'Priya Nair',
-    places: 2,
-    status: 'redact',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_dob',
-    type: 'DATE_OF_BIRTH',
-    label: 'BIRTH',
-    value: '14/03/1989',
-    places: 1,
-    status: 'redact',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_email_priya',
-    type: 'EMAIL_ADDRESS',
-    label: 'EMAIL',
-    value: 'priya.nair@mailbox.example',
-    places: 1,
-    status: 'redact',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_phone',
-    type: 'PHONE_NUMBER',
-    label: 'PHONE',
-    value: '+91 98765 43210',
-    places: 1,
-    status: 'redact',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_pan',
-    type: 'PAN_NUMBER',
-    label: 'PAN',
-    value: 'ABCDE1234F',
-    places: 1,
-    status: 'redact',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_aadhaar',
-    type: 'AADHAAR_NUMBER',
-    label: 'AADHAAR',
-    value: '2345 6789 0124',
-    places: 1,
-    status: 'redact',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_address',
-    type: 'STREET_ADDRESS',
-    label: 'ADDRESS',
-    value: '42 Lakeview Road, Chennai',
-    places: 1,
-    status: 'redact',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_card',
-    type: 'CREDIT_CARD',
-    label: 'CARD',
-    value: '4532 0151 1283 0366',
-    places: 1,
-    status: 'redact',
-    source: 'automatic',
-  },
-  {
-    id: 'finding_email_northwind',
-    type: 'EMAIL_ADDRESS',
-    label: 'EMAIL',
-    value: 'hr@northwind.example',
-    places: 1,
-    status: 'keep',
-    source: 'automatic',
-  },
-];
-
-const INITIAL_RUNS: RedactionRun[] = [
-  {
-    id: 'offer_letter.docx',
-    filename: 'offer_letter.docx',
-    format: 'DOCX',
-    size: '38 KB',
-    sizeBytes: 38912,
-    ruleSet: 'Everything',
-    ruleSetId: 'everything',
-    foundCount: 13,
-    redactedCount: 10,
-    status: 'VERIFIED',
-    when: 'Today, 09:12',
-    look: 'bar',
-    verifiedAt: 'Today, 09:12',
-    checks: {
-      searchedOutput: true,
-      ranDetectors: true,
-      propertiesCleared: true,
-      hiddenChecked: true,
-      fileOpens: true,
-      originalUntouched: true,
-    },
-  },
-  {
-    id: 'patients_q3.csv',
-    filename: 'patients_q3.csv',
-    format: 'CSV',
-    size: '112 KB',
-    sizeBytes: 114688,
-    ruleSet: 'HIPAA',
-    ruleSetId: 'hipaa',
-    foundCount: 148,
-    redactedCount: '131 so far',
-    status: 'IN_REVIEW',
-    reviewCount: 17,
-    when: 'Today, 08:40',
-    look: 'bar',
-  },
-  {
-    id: 'payroll_export.docx',
-    filename: 'payroll_export.docx',
-    format: 'DOCX',
-    size: '42 KB',
-    sizeBytes: 43008,
-    ruleSet: 'India IDs',
-    ruleSetId: 'india-ids',
-    foundCount: 9,
-    redactedCount: 0,
-    status: 'FAILED',
-    statusNote: "2 redactions couldn't be applied. Nothing was exported.",
-    when: 'Yesterday, 18:04',
-    look: 'bar',
-  },
-  {
-    id: 'board_minutes.docx',
-    filename: 'board_minutes.docx',
-    format: 'DOCX',
-    size: '28 KB',
-    sizeBytes: 28672,
-    ruleSet: 'GDPR',
-    ruleSetId: 'gdpr',
-    foundCount: 21,
-    redactedCount: 21,
-    status: 'VERIFIED',
-    when: '16 Oct',
-    look: 'bar',
-    checks: {
-      searchedOutput: true,
-      ranDetectors: true,
-      propertiesCleared: true,
-      hiddenChecked: true,
-      fileOpens: true,
-      originalUntouched: true,
-    },
-  },
-  {
-    id: 'contacts.csv',
-    filename: 'contacts.csv',
-    format: 'CSV',
-    size: '84 KB',
-    sizeBytes: 86016,
-    ruleSet: 'Everything',
-    ruleSetId: 'everything',
-    foundCount: 312,
-    redactedCount: 312,
-    status: 'VERIFIED',
-    when: '15 Oct',
-    look: 'bar',
-    checks: {
-      searchedOutput: true,
-      ranDetectors: true,
-      propertiesCleared: true,
-      hiddenChecked: true,
-      fileOpens: true,
-      originalUntouched: true,
-    },
-  },
-  {
-    id: 'scan_0042.pdf',
-    filename: 'scan_0042.pdf',
-    format: 'PDF',
-    size: '4.2 MB',
-    sizeBytes: 4404019,
-    ruleSet: 'None',
-    ruleSetId: 'none',
-    foundCount: 'n/a',
-    redactedCount: 'n/a',
-    status: 'UNSUPPORTED',
-    statusNote: 'PDF redaction is coming. Nothing was processed.',
-    when: '14 Oct',
-    look: 'bar',
-  },
-  {
-    id: 'vendor_list.csv',
-    filename: 'vendor_list.csv',
-    format: 'CSV',
-    size: '18 KB',
-    sizeBytes: 18432,
-    ruleSet: 'PCI-DSS',
-    ruleSetId: 'pci-dss',
-    foundCount: 4,
-    redactedCount: 4,
-    status: 'VERIFIED',
-    statusNote: 'Files deleted',
-    when: '12 Oct',
-    look: 'bar',
-    checks: {
-      searchedOutput: true,
-      ranDetectors: true,
-      propertiesCleared: true,
-      hiddenChecked: true,
-      fileOpens: true,
-      originalUntouched: true,
-    },
   },
 ];
 
@@ -640,9 +379,9 @@ export const RedactProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [runs, setRuns] = useState<RedactionRun[]>(() => {
     try {
       const saved = localStorage.getItem('redact_runs');
-      return saved ? JSON.parse(saved) : INITIAL_RUNS;
+      return saved ? JSON.parse(saved) : [];
     } catch {
-      return INITIAL_RUNS;
+      return [];
     }
   });
 
@@ -655,28 +394,17 @@ export const RedactProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [runs]);
 
   // Documents Store (mapped by document ID)
-  const [documents, setDocuments] = useState<Record<string, ActiveDocument>>(() => {
-    return {
-      'offer_letter.docx': {
-        id: 'offer_letter.docx',
-        filename: 'offer_letter.docx',
-        format: 'DOCX',
-        originalText: DEFAULT_OFFER_LETTER_TEXT,
-        findings: INITIAL_FINDINGS,
-        verifiedAt: 'Today, 09:12',
-      },
-    };
-  });
+  const [documents, setDocuments] = useState<Record<string, ActiveDocument>>({});
 
-  const [currentDocumentId, setCurrentDocumentId] = useState<string>('offer_letter.docx');
+  const [currentDocumentId, setCurrentDocumentId] = useState<string>('');
 
   const currentDocument = useMemo(() => {
-    return documents[currentDocumentId] || documents['offer_letter.docx'];
+    return currentDocumentId ? documents[currentDocumentId] : undefined;
   }, [documents, currentDocumentId]);
 
   // Findings for the active document
   const [findings, setFindings] = useState<FindingItem[]>(() => {
-    return currentDocument?.findings || INITIAL_FINDINGS;
+    return currentDocument?.findings || [];
   });
 
   // Keep active document findings synced when currentDocumentId changes
@@ -684,6 +412,8 @@ export const RedactProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const doc = documents[currentDocumentId];
     if (doc) {
       setFindings(doc.findings);
+    } else {
+      setFindings([]);
     }
   }, [currentDocumentId, documents]);
 
@@ -850,8 +580,10 @@ export const RedactProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         format: parsed.format,
         originalText: parsed.text,
         rawZip: parsed.rawZip,
+        rawBytes: parsed.rawBytes,
         rawFile: file,
         findings: detected,
+        isOcr: parsed.isOcr,
       };
 
       setDocuments((prev) => ({
@@ -889,14 +621,15 @@ export const RedactProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // REAL VERIFICATION CHECK ENGINE
   const applyAndVerify = useCallback(
     (docId: string) => {
-      const doc = documents[docId] || documents['offer_letter.docx'];
-      const docText = doc?.originalText || DEFAULT_OFFER_LETTER_TEXT;
+      const doc = documents[docId];
+      if (!doc) return;
+      const docText = doc.originalText;
 
       const redactedText = applyRedactionsToText(docText, findings, currentLook);
       const verificationResult = runVerificationChecks(docText, redactedText, findings, activeRuleSet);
 
       setDocuments((prev) => {
-        const target = prev[docId] || prev['offer_letter.docx'];
+        const target = prev[docId];
         if (!target) return prev;
         return {
           ...prev,
@@ -941,21 +674,27 @@ export const RedactProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // REAL FILE DOWNLOAD (Physical Redaction)
   const downloadRedactedFile = useCallback(
     async (docId: string) => {
-      const doc = documents[docId] || documents['offer_letter.docx'];
+      const doc = documents[docId];
+      if (!doc) return;
       const run = runs.find((r) => r.id === docId || r.filename === docId);
-      const filename = run ? run.filename : docId;
-      const cleanFilename = filename.replace(/\.(docx|csv|txt)$/i, '.redacted.$1');
+      const filename = run ? run.filename : doc.filename || docId;
+      const cleanFilename = filename.replace(/\.(docx|csv|txt|pdf)$/i, '.redacted.$1');
 
       let downloadBlob: Blob;
 
-      if (doc?.format === 'DOCX' && doc.rawZip) {
+      if (doc.format === 'DOCX' && doc.rawZip) {
         // Physical DOCX XML replacement & metadata wiping
         downloadBlob = await generateSanitizedDocx(doc.rawZip, findings, currentLook);
+      } else if (doc.format === 'PDF' && doc.rawBytes) {
+        // Physical PDF stream replacement & metadata wiping
+        const sanitizedPdfBytes = generateSanitizedPdf(doc.rawBytes, findings, currentLook);
+        downloadBlob = new Blob([sanitizedPdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
       } else {
         // Text / CSV physical replacement
-        const original = doc?.originalText || DEFAULT_OFFER_LETTER_TEXT;
+        const original = doc.originalText;
         const sanitized = applyRedactionsToText(original, findings, currentLook);
-        downloadBlob = new Blob([sanitized], { type: 'text/plain;charset=utf-8' });
+        const mimeType = doc.format === 'CSV' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8';
+        downloadBlob = new Blob([sanitized], { type: mimeType });
       }
 
       const url = URL.createObjectURL(downloadBlob);
@@ -973,10 +712,11 @@ export const RedactProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // REAL AUDIT REPORT GENERATOR (Cryptographic Proof)
   const downloadReport = useCallback(
     async (docId: string, format: 'pdf' | 'json') => {
-      const doc = documents[docId] || documents['offer_letter.docx'];
+      const doc = documents[docId];
+      if (!doc) return;
       const run = runs.find((r) => r.id === docId || r.filename === docId);
-      const filename = run ? run.filename : docId;
-      const original = doc?.originalText || DEFAULT_OFFER_LETTER_TEXT;
+      const filename = run ? run.filename : doc.filename || docId;
+      const original = doc.originalText;
       const sanitized = applyRedactionsToText(original, findings, currentLook);
 
       const [origHash, sanitizedHash] = await Promise.all([

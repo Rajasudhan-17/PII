@@ -10,13 +10,14 @@ import {
   FileText,
   Crosshair,
 } from 'lucide-react';
-import { useRedact, DEFAULT_OFFER_LETTER_TEXT, FindingItem } from '../context/RedactContext';
+import { useRedact, FindingItem } from '../context/RedactContext';
 
 export const ReviewWorkspacePage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const {
     documents,
+    currentDocumentId,
     findings,
     previewMode,
     setPreviewMode,
@@ -34,9 +35,9 @@ export const ReviewWorkspacePage: React.FC = () => {
     applyAndVerify,
   } = useRedact();
 
-  const docId = id || 'offer_letter.docx';
-  const currentDoc = documents[docId] || documents['offer_letter.docx'];
-  const docText = currentDoc?.originalText || DEFAULT_OFFER_LETTER_TEXT;
+  const docId = id || currentDocumentId;
+  const currentDoc = docId ? documents[docId] : undefined;
+  const docText = currentDoc?.originalText || '';
 
   // Search & Filter state in sidebar
   const [searchQuery, setSearchQuery] = useState('');
@@ -276,6 +277,29 @@ export const ReviewWorkspacePage: React.FC = () => {
     );
   };
 
+  if (!currentDoc) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
+        <div className="w-16 h-16 rounded-2xl bg-white border border-[#E5E7EB] shadow-sm flex items-center justify-center mx-auto text-[#6B7280]">
+          <FileText className="w-8 h-8 text-[#9CA3AF]" />
+        </div>
+        <h2 className="text-xl font-bold text-[#111827]">No Document Selected for Review</h2>
+        <p className="text-xs text-[#6B7280] max-w-md mx-auto">
+          Please upload or stage a document first to detect personal data and begin reviewing redaction candidates.
+        </p>
+        <div className="pt-2">
+          <Link
+            to="/new"
+            className="inline-flex items-center gap-2 bg-[#111827] hover:bg-black text-white text-xs font-semibold px-5 py-2.5 rounded-xl shadow-sm transition-colors"
+          >
+            <span>Upload Document</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-[calc(100vh-4rem)] flex flex-col bg-[#F3F4F6]">
       {/* Sub-header Bar */}
@@ -300,6 +324,12 @@ export const ReviewWorkspacePage: React.FC = () => {
           <span className="bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] text-[10px] font-bold px-2 py-0.5 rounded-full">
             Reviewing
           </span>
+
+          {currentDoc?.isOcr && (
+            <span className="bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE] text-[10px] font-bold px-2 py-0.5 rounded-full">
+              OCR Engine
+            </span>
+          )}
 
           {/* Metric Badges */}
           <div className="flex items-center gap-1.5 text-[10px]">
@@ -540,22 +570,41 @@ export const ReviewWorkspacePage: React.FC = () => {
               {filteredReviewItems.map((f) => (
                 <div
                   key={f.id}
-                  className="p-3.5 rounded-xl border border-[#FDE68A] bg-[#FEFCE8] space-y-2"
+                  className="p-3.5 rounded-xl border border-[#FDE68A] bg-[#FEFCE8] space-y-2.5 shadow-sm"
                 >
                   <div className="flex items-center justify-between text-[11px]">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono font-bold bg-[#111827] text-white text-[9px] px-1 py-0.5 rounded">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-mono font-bold bg-[#111827] text-white text-[9px] px-1.5 py-0.5 rounded">
                         {f.label}
                       </span>
-                      <span className="text-[#6B7280]">{f.sureText || `${f.confidence}% sure`}</span>
+                      <span className="font-semibold text-[#854D0E] bg-[#FEF08A] px-1.5 py-0.5 rounded text-[10px]">
+                        {f.sureText || `${f.confidence}% sure`}
+                      </span>
+                      {f.documentType && f.documentType !== 'GENERAL' && (
+                        <span className="text-[9px] font-bold uppercase text-[#1D4ED8] bg-[#EFF6FF] px-1.5 py-0.5 rounded border border-[#BFDBFE]">
+                          {f.documentType}
+                        </span>
+                      )}
                     </div>
-                    <span className="text-[#6B7280] text-[10px]">{f.places} places</span>
+                    <span className="text-[#6B7280] text-[10px] font-mono">{f.places} place{f.places > 1 ? 's' : ''}</span>
                   </div>
 
-                  <p className="text-xs font-bold text-[#111827]">{f.value}</p>
-                  {f.reason && (
+                  <p className="text-xs font-bold text-[#111827] font-mono break-all">{f.value}</p>
+
+                  {/* Evidence Checklist */}
+                  {f.evidence && f.evidence.length > 0 ? (
+                    <div className="space-y-1 bg-white/70 p-2 rounded-lg border border-[#FDE68A]/60 text-[10px] text-[#4B5563]">
+                      <p className="font-bold text-[9px] uppercase tracking-wider text-[#92400E]">Evidence Corroboration</p>
+                      {f.evidence.map((ev, evIdx) => (
+                        <div key={evIdx} className="flex items-start gap-1.5 leading-snug">
+                          <span className="text-[#059669] font-bold">✓</span>
+                          <span>{ev.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : f.reason ? (
                     <p className="text-[11px] text-[#6B7280] leading-snug">{f.reason}</p>
-                  )}
+                  ) : null}
 
                   {/* Actions: Redact or Keep */}
                   <div className="flex items-center gap-2 pt-1">
@@ -601,6 +650,11 @@ export const ReviewWorkspacePage: React.FC = () => {
                     </span>
                     {f.places > 1 && (
                       <span className="text-[10px] text-[#6B7280] font-mono">×{f.places}</span>
+                    )}
+                    {f.documentType && f.documentType !== 'GENERAL' && (
+                      <span className="text-[8px] font-bold text-[#1D4ED8] bg-[#EFF6FF] px-1 py-0.2 rounded shrink-0">
+                        {f.documentType}
+                      </span>
                     )}
                   </div>
 

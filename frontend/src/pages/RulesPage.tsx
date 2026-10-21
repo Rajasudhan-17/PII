@@ -333,16 +333,16 @@ export const RulesPage: React.FC = () => {
               <div className="flex items-baseline justify-between">
                 <div>
                   <h3 className="text-xs font-bold text-[#111827]">
-                    How sure before we redact?
+                    Detection confidence policy
                   </h3>
                   <p className="text-[11px] text-[#6B7280]">
-                    Findings above this level are redacted automatically. Below it, they wait for your review.
+                    Multi-signal evidence policy determining three-way outcomes: Auto-Redact, Manual Review, or Keep.
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center justify-between text-xs font-bold text-[#111827] pt-2">
-                <span className="text-[#6B7280] font-medium">Confidence threshold</span>
+                <span className="text-[#6B7280] font-medium">Auto-redaction threshold</span>
                 <span className="font-extrabold">{activeRuleSet.confidenceThreshold}%</span>
               </div>
 
@@ -358,8 +358,39 @@ export const RulesPage: React.FC = () => {
               />
 
               <div className="flex items-center justify-between text-[10px] text-[#6B7280]">
-                <span>50% review more</span>
-                <span>100% review less</span>
+                <span>50% auto-redact more</span>
+                <span>100% require stronger corroboration</span>
+              </div>
+
+              {/* Three-Way Decision Policy Breakdown */}
+              <div className="p-3 bg-[#F9FAFB] rounded-xl border border-[#E5E7EB] space-y-2 mt-2 text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#111827] flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#10B981]" />
+                    High Confidence (≥{activeRuleSet.confidenceThreshold}%)
+                  </span>
+                  <span className="font-mono font-bold text-[#065F46] bg-[#ECFDF5] px-2 py-0.5 rounded text-[10px]">
+                    AUTO REDACT
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#111827] flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+                    Medium Corroboration (50% – {activeRuleSet.confidenceThreshold - 1}%)
+                  </span>
+                  <span className="font-mono font-bold text-[#92400E] bg-[#FEF3C7] px-2 py-0.5 rounded text-[10px]">
+                    MANUAL REVIEW
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#111827] flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#6B7280]" />
+                    Low / Negative Context (&lt;50%)
+                  </span>
+                  <span className="font-mono font-bold text-[#374151] bg-[#F3F4F6] px-2 py-0.5 rounded text-[10px]">
+                    KEEP UNTOUCHED
+                  </span>
+                </div>
               </div>
             </div>
 

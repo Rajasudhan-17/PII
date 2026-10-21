@@ -48,14 +48,25 @@ export function mergeCandidates(
         if (overlap) {
           isOverlap = true;
 
-          // If identical candidate range and type, skip candidate
-          if (cand.type === acc.type && cand.startOffset === acc.startOffset && cand.endOffset === acc.endOffset) {
-            break;
-          }
+          // Union evidence rather than discarding
+          const mergedEvidence = Array.from(
+            new Set([...(acc.evidence || []), ...(cand.evidence || []), `Corroborated by ${cand.detectorName}`])
+          );
 
-          // If cand is DETERMINISTIC and acc is HEURISTIC/NER_MODEL, replace acc
+          // If cand is DETERMINISTIC and acc is HEURISTIC/NER_MODEL, replace acc properties but keep accumulated evidence
           if (cand.detectorType === 'DETERMINISTIC' && acc.detectorType !== 'DETERMINISTIC') {
-            accepted[i] = cand;
+            accepted[i] = {
+              ...cand,
+              evidence: mergedEvidence,
+              detectorName: `${cand.detectorName} + ${acc.detectorName}`,
+            };
+          } else {
+            // Retain acc, but augment with cand evidence and higher score if applicable
+            accepted[i].evidence = mergedEvidence;
+            if (cand.detectionScore > accepted[i].detectionScore) {
+              accepted[i].detectionScore = cand.detectionScore;
+              accepted[i].confidence = cand.confidence;
+            }
           }
           break;
         }

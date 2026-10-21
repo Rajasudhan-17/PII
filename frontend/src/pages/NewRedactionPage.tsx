@@ -33,25 +33,7 @@ export const NewRedactionPage: React.FC = () => {
   const [scanPhaseText, setScanPhaseText] = useState('Scanning for personal data...');
 
   // Files in upload staging
-  const [stagedFiles, setStagedFiles] = useState<StagedFileItem[]>([
-    {
-      id: 'offer_letter.docx',
-      name: 'offer_letter.docx',
-      ext: 'DOCX',
-      size: '38 KB',
-      progress: 100,
-      findingsCount: 13,
-      readyForReview: true,
-    },
-    {
-      id: 'patients_q3.csv',
-      name: 'patients_q3.csv',
-      ext: 'CSV',
-      size: '112 KB',
-      findingsCount: 148,
-      readyForReview: true,
-    },
-  ]);
+  const [stagedFiles, setStagedFiles] = useState<StagedFileItem[]>([]);
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -88,54 +70,29 @@ export const NewRedactionPage: React.FC = () => {
   };
 
   const handleScanClick = async () => {
-    setIsScanning(true);
-    setScanProgress(15);
-    setScanPhaseText('Reading file structure...');
-
-    // Find the first unreviewed file with a rawFile, or the last added file
     const targetItem = stagedFiles.find((f) => f.rawFile) || stagedFiles[0];
+    if (!targetItem || !targetItem.rawFile) {
+      return;
+    }
+
+    setIsScanning(true);
+    setScanProgress(25);
+    setScanPhaseText('Extracting file contents...');
 
     try {
-      if (targetItem.rawFile) {
-        setTimeout(() => {
-          setScanProgress(45);
-          setScanPhaseText('Running 11 PII detectors...');
-        }, 200);
-
-        setTimeout(() => {
-          setScanProgress(80);
-          setScanPhaseText('Applying rule set filters...');
-        }, 500);
-
-        const docId = await scanUploadedFile(targetItem.rawFile);
-
-        setTimeout(() => {
-          setScanProgress(100);
-          setScanPhaseText('Scan complete!');
-          setIsScanning(false);
-          setCurrentDocumentId(docId);
-          navigate(`/review/${docId}`);
-        }, 800);
-      } else {
-        // Default demo document fallback
-        let p = 20;
-        const interval = setInterval(() => {
-          p += 25;
-          if (p >= 100) {
-            clearInterval(interval);
-            setScanProgress(100);
-            setIsScanning(false);
-            setCurrentDocumentId('offer_letter.docx');
-            navigate('/review/offer_letter.docx');
-          } else {
-            setScanProgress(p);
-          }
-        }, 150);
-      }
-    } catch (err) {
+      setScanProgress(60);
+      setScanPhaseText('Running 11 PII detectors and checksum validators...');
+      const docId = await scanUploadedFile(targetItem.rawFile);
+      setScanProgress(100);
+      setScanPhaseText('Scan complete! Opening review workspace...');
+      setIsScanning(false);
+      setCurrentDocumentId(docId);
+      navigate(`/review/${encodeURIComponent(docId)}`);
+    } catch (err: unknown) {
       console.error('Scan error:', err);
       setIsScanning(false);
-      navigate(`/review/${targetItem.id}`);
+      const errMsg = err instanceof Error ? err.message : 'Scan processing failed';
+      setScanPhaseText('Error: ' + errMsg);
     }
   };
 
@@ -193,7 +150,7 @@ export const NewRedactionPage: React.FC = () => {
               onChange={(e) => handleFiles(e.target.files)}
               className="hidden"
               multiple
-              accept=".docx,.txt,.csv,.pdf,.json,.md"
+              accept=".docx,.txt,.csv,.pdf,.json,.md,.png,.jpg,.jpeg,.tiff"
             />
 
             <div className="w-14 h-14 rounded-full bg-white border border-[#E5E7EB] flex items-center justify-center mx-auto mb-4 shadow-sm text-[#111827]">

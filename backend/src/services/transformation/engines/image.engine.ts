@@ -114,7 +114,7 @@ export class ImageEngine implements ITransformationEngine {
       }
     }
 
-    if (pngInstance) {
+    if (pngInstance && transformedCount > 0) {
       outputBuffer = Buffer.from(PNG.sync.write(pngInstance));
     }
 

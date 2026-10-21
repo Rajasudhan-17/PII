@@ -39,6 +39,15 @@ export class PhoneDetector implements IPIIDetector {
         continue;
       }
 
+      // Precision guard: skip if preceded by reference / invoice / code prefix (e.g. "INV-2026-88129", "HOSP-REG-2026-99182")
+      const precedingPrefix = text.slice(Math.max(0, match.index - 35), match.index);
+      if (/(?:inv|ref|hosp|reg|case|ord|batch|code|ticket|sku|device|mod)[-_]$/i.test(precedingPrefix.trimEnd())) {
+        continue;
+      }
+      if (/(?:invoice|billing|registration|hospital|order|case|matter|ticket|product|model|batch|tracking|sku)\s*(?:number|reference|ref|id|code|#)?\s*[:=-]\s*(?:[A-Z0-9_-]+[-_])?$/i.test(precedingPrefix)) {
+        continue;
+      }
+
       const relativeStart = match.index;
       const relativeEnd = relativeStart + matchText.length;
 

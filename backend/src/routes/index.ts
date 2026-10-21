@@ -13,6 +13,7 @@ import sanitizationRoutes from './sanitization.routes';
 import riskRoutes from './risk.routes';
 import verificationRoutes from './verification.routes';
 import humanReviewRoutes from './humanReview.routes';
+import scanRoutes from './scan.routes';
 import { authenticate } from '../middleware/authenticate';
 import { requireRole, requirePermission } from '../middleware/authorize';
 
@@ -20,6 +21,9 @@ const router = Router();
 
 // Health Routes
 router.use('/', healthRoutes);
+
+// Universal Scan & OCR Routes (Fast extraction for PDF, Images, DOCX, CSV)
+router.use('/scan', scanRoutes);
 
 // Authentication & Identity Routes
 router.use('/auth', authRoutes);
