@@ -42,7 +42,7 @@ function decodeAscii85(a85Str: string): Buffer {
 }
 
 function extractTextFromPdfBuffer(buffer: Buffer): string {
-  let binary = buffer.toString('binary');
+  const binary = buffer.toString('binary');
   let extracted = binary;
 
   const streamPattern = /(\d+\s+\d+\s+obj[\s\S]*?<<[\s\S]*?>>\s*stream\r?\n)([\s\S]*?)(\r?\nendstream)/g;

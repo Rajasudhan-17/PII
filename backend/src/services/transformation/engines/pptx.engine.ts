@@ -164,7 +164,7 @@ export class PptxEngine implements ITransformationEngine {
           : '█'.repeat(Math.max(targetText.length, 6));
 
       for (const entry of xmlEntries) {
-        let xml = entryXmlMap.get(entry.entryName) || '';
+        const xml = entryXmlMap.get(entry.entryName) || '';
 
         const redactRes = redactPptxXml(xml, targetText, replacementText);
         if (redactRes.matched) {

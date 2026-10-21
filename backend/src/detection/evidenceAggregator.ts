@@ -35,7 +35,7 @@ export interface EnhancedPIICandidate {
   startOffset: number;
   endOffset: number;
   pageNumber?: number;
-  boundingBox?: any;
+  boundingBox?: Record<string, unknown> | null;
   places?: number;
 }
 
@@ -47,7 +47,7 @@ export interface CandidateInput {
   startOffset?: number;
   endOffset?: number;
   pageNumber?: number;
-  boundingBox?: any;
+  boundingBox?: Record<string, unknown> | null;
   detector: string;
   confidence: number;
   ocrConfidence?: number;
@@ -139,7 +139,7 @@ export class EvidenceAggregator {
     // Check for organization suffix attached directly to candidate
     const valWords = lowerVal.split(/\s+/);
     const lastWord = valWords[valWords.length - 1];
-    let isOrgContext = ORGANIZATION_SUFFIXES.has(lastWord);
+    const isOrgContext = ORGANIZATION_SUFFIXES.has(lastWord);
 
     if (isOrgContext) {
       businessSignals += 3;
@@ -214,7 +214,7 @@ export class EvidenceAggregator {
 
     // 1. Classify Document Profile
     const docClassification = policyConfig.documentTypeOverride
-      ? { primaryType: policyConfig.documentTypeOverride, confidence: 1.0, scores: {} as any, matchedKeywords: [] }
+      ? { primaryType: policyConfig.documentTypeOverride, confidence: 1.0, scores: {} as Record<DocumentType, number>, matchedKeywords: [] }
       : DocumentClassifier.classify(fullText);
     const documentType = docClassification.primaryType;
 
@@ -473,7 +473,6 @@ export class EvidenceAggregator {
       contextScore,
       isOrgContext,
       proximityCount,
-      evidenceCount: _evidenceCount,
       alwaysRedactSet,
       neverRedactSet,
     } = params;

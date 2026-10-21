@@ -456,7 +456,7 @@ export class PolicyService {
   ): Promise<void> {
     const isReplicaSet = Boolean(
       mongoose.connection.readyState === 1 &&
-      (mongoose.connection.getClient() as any)?.topology?.description?.type?.includes('ReplicaSet')
+      (mongoose.connection.getClient() as unknown as { topology?: { description?: { type?: string } } })?.topology?.description?.type?.includes('ReplicaSet')
     );
 
     if (isReplicaSet) {

@@ -172,7 +172,7 @@ export class DocxEngine implements ITransformationEngine {
           : '█'.repeat(Math.max(targetText.length, 6));
 
       for (const entry of xmlEntries) {
-        let xml = entryXmlMap.get(entry.entryName) || '';
+        const xml = entryXmlMap.get(entry.entryName) || '';
 
         const redactRes = redactWordXml(xml, targetText, replacementText);
         if (redactRes.matched) {
