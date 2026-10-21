@@ -349,6 +349,8 @@ if (require.main === module) {
       splitFilter = arg.split('=')[1] as 'dev' | 'heldout' | 'all';
     } else if (arg.startsWith('--output=')) {
       outputPath = path.resolve(arg.split('=')[1]);
+    } else if (arg.startsWith('--ner-url=')) {
+      process.env.NER_SERVICE_URL = arg.split('=')[1];
     }
   }
 

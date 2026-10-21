@@ -16,6 +16,7 @@ services:
       MONGODB_URI: mongodb://mongodb:27017/pii_platform
       REDIS_URL: redis://redis:6379
       HTR_SERVICE_URL: http://htr:8000
+      NER_SERVICE_URL: http://ner:8001
     depends_on:
       mongodb:
         condition: service_healthy
@@ -32,6 +33,17 @@ services:
       - "8000:8000"
     environment:
       - PORT=8000
+    restart: unless-stopped
+
+  ner:
+    build:
+      context: ./services/ner-service
+      dockerfile: Dockerfile
+    container_name: pii-ner-service
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
     restart: unless-stopped
 
   mongodb:

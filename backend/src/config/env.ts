@@ -23,6 +23,7 @@ export const envSchema = z.object({
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
   HTR_SERVICE_URL: z.string().default('http://localhost:8000'),
+  NER_SERVICE_URL: z.string().optional(),
 
   // Phase 02 Authentication & JWT Secrets
   JWT_ACCESS_SECRET: z

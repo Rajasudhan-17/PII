@@ -6,6 +6,8 @@ import { IBANDetector } from './iban.detector';
 import { AuthSecurityDetector } from './authSecurity.detector';
 import { NationalIDDetector } from './nationalId.detector';
 import { NERDetector } from './ner.detector';
+import { PresidioNERProvider } from '../ner/presidio.provider';
+import { HeuristicNERProvider } from '../ner/heuristicNER.provider';
 
 export * from './detector.interface';
 export * from './detector.registry';
@@ -16,6 +18,9 @@ export * from './iban.detector';
 export * from './authSecurity.detector';
 export * from './nationalId.detector';
 export * from './ner.detector';
+export * from '../ner/ner.interface';
+export * from '../ner/heuristicNER.provider';
+export * from '../ner/presidio.provider';
 
 export function initializeDefaultDetectors(): PIIDetectorRegistry {
   const registry = PIIDetectorRegistry.getInstance();
@@ -28,7 +33,13 @@ export function initializeDefaultDetectors(): PIIDetectorRegistry {
     registry.register(new IBANDetector());
     registry.register(new AuthSecurityDetector());
     registry.register(new NationalIDDetector());
-    registry.register(new NERDetector());
+
+    const nerServiceUrl = process.env.NER_SERVICE_URL;
+    if (nerServiceUrl && nerServiceUrl.trim().length > 0) {
+      registry.register(new NERDetector(new PresidioNERProvider(nerServiceUrl.trim())));
+    } else {
+      registry.register(new NERDetector(new HeuristicNERProvider()));
+    }
   }
 
   return registry;
