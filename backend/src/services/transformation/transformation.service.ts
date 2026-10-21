@@ -1,9 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { Readable } from 'stream';
 import mongoose from 'mongoose';
 import { TransformationRunModel, ITransformationRun, TransformationOperation } from '../../models/transformationRun.model';
 import { OutputArtifactModel, IOutputArtifact } from '../../models/outputArtifact.model';
+import { VerificationRunModel } from '../../models/verificationRun.model';
 import { TransformationRecordModel, ITransformationRecord } from '../../models/transformationRecord.model';
 import { DecisionRunModel } from '../../models/decisionRun.model';
 import { DecisionResultModel, IDecisionResult } from '../../models/decisionResult.model';
@@ -443,6 +445,311 @@ export class TransformationService {
     });
 
     return { run, artifact, records };
+  }
+
+  /**
+   * Downloads a verified redacted output artifact.
+   *
+   * SECURITY INVARIANT:
+   * Explicit requests for redacted/transformed derivatives MUST FAIL CLOSED if
+   * an active, verified, valid output artifact is not available.
+   * This method NEVER falls back to returning the unredacted original upload.
+   */
+  public async downloadVerifiedRedactedArtifact(
+    documentIdStr: string,
+    organizationIdStr: string,
+    options?: {
+      runId?: string;
+      outputArtifactId?: string;
+      userId?: string;
+      requestId?: string;
+      ip?: string;
+    }
+  ): Promise<{ artifact: IOutputArtifact; stream: Readable }> {
+    const documentId = validateObjectId(documentIdStr, 'Document ID');
+    const organizationId = validateObjectId(organizationIdStr, 'Organization ID');
+
+    // 1. Verify source document exists and belongs to the authenticated tenant
+    const doc = await DocumentModel.findOne({ _id: documentId, organizationId, isDeleted: false });
+    if (!doc) {
+      logAuthAuditEvent({
+        event: 'DOCUMENT_ACCESS_DENIED',
+        userId: options?.userId,
+        organizationId: organizationIdStr,
+        requestId: options?.requestId,
+        ip: options?.ip,
+        outcome: 'DENIED',
+        reason: 'DOCUMENT_NOT_FOUND',
+      });
+      throw AppError.notFound('Document not found or access denied.', 'DOCUMENT_NOT_FOUND');
+    }
+
+    // 2. Resolve target OutputArtifact based on explicit outputArtifactId, runId, or latest active
+    let artifact: IOutputArtifact | null = null;
+    let run: ITransformationRun | null = null;
+
+    if (options?.outputArtifactId) {
+      artifact = await OutputArtifactModel.findOne({
+        organizationId,
+        sourceDocumentId: documentId,
+        outputArtifactId: options.outputArtifactId,
+      });
+
+      if (!artifact) {
+        logAuthAuditEvent({
+          event: 'DOCUMENT_ACCESS_DENIED',
+          userId: options?.userId,
+          organizationId: organizationIdStr,
+          requestId: options?.requestId,
+          ip: options?.ip,
+          outcome: 'DENIED',
+          reason: 'REDACTED_ARTIFACT_NOT_FOUND',
+        });
+        throw new AppError(
+          'A verified redacted output artifact is not available for download.',
+          404,
+          'REDACTED_ARTIFACT_NOT_AVAILABLE'
+        );
+      }
+
+      if (options?.runId && artifact.transformationRunId !== options.runId) {
+        logAuthAuditEvent({
+          event: 'DOCUMENT_ACCESS_DENIED',
+          userId: options?.userId,
+          organizationId: organizationIdStr,
+          requestId: options?.requestId,
+          ip: options?.ip,
+          outcome: 'DENIED',
+          reason: 'ARTIFACT_RUN_MISMATCH',
+        });
+        throw new AppError(
+          'The requested output artifact does not match the specified transformation run.',
+          409,
+          'REDACTED_ARTIFACT_NOT_AVAILABLE'
+        );
+      }
+    } else if (options?.runId) {
+      run = await TransformationRunModel.findOne({
+        organizationId,
+        documentId,
+        transformationRunId: options.runId,
+      });
+
+      if (!run || !run.outputArtifactId) {
+        logAuthAuditEvent({
+          event: 'DOCUMENT_ACCESS_DENIED',
+          userId: options?.userId,
+          organizationId: organizationIdStr,
+          requestId: options?.requestId,
+          ip: options?.ip,
+          outcome: 'DENIED',
+          reason: 'TRANSFORMATION_RUN_NOT_FOUND',
+        });
+        throw new AppError(
+          'A verified redacted output artifact is not available for this transformation run.',
+          404,
+          'REDACTED_ARTIFACT_NOT_AVAILABLE'
+        );
+      }
+
+      artifact = await OutputArtifactModel.findOne({
+        organizationId,
+        sourceDocumentId: documentId,
+        outputArtifactId: run.outputArtifactId,
+      });
+    } else {
+      // Find latest active transformation run
+      const activeRun = await TransformationRunModel.findOne({
+        organizationId,
+        documentId,
+        isLatestActive: true,
+      });
+
+      if (activeRun?.outputArtifactId) {
+        artifact = await OutputArtifactModel.findOne({
+          organizationId,
+          sourceDocumentId: documentId,
+          outputArtifactId: activeRun.outputArtifactId,
+        });
+      }
+
+      if (!artifact) {
+        // Fall back to latest active artifact
+        artifact = await OutputArtifactModel.findOne({
+          organizationId,
+          sourceDocumentId: documentId,
+          status: 'ACTIVE',
+        }).sort({ createdAt: -1 });
+      }
+    }
+
+    // Fail closed if no artifact was found
+    if (!artifact) {
+      logAuthAuditEvent({
+        event: 'DOCUMENT_ACCESS_DENIED',
+        userId: options?.userId,
+        organizationId: organizationIdStr,
+        requestId: options?.requestId,
+        ip: options?.ip,
+        outcome: 'DENIED',
+        reason: 'REDACTED_ARTIFACT_NOT_FOUND',
+      });
+      throw new AppError(
+        'A verified redacted output artifact is not available for download.',
+        404,
+        'REDACTED_ARTIFACT_NOT_AVAILABLE'
+      );
+    }
+
+    // 3. Status Gate: Check artifact status (only ACTIVE is downloadable as completed redaction)
+    if (artifact.status === 'PENDING_REVIEW') {
+      logAuthAuditEvent({
+        event: 'DOCUMENT_ACCESS_DENIED',
+        userId: options?.userId,
+        organizationId: organizationIdStr,
+        requestId: options?.requestId,
+        ip: options?.ip,
+        outcome: 'DENIED',
+        reason: 'REDACTED_ARTIFACT_PENDING_REVIEW',
+      });
+      throw new AppError(
+        'The redacted output artifact is pending human review and cannot be downloaded.',
+        409,
+        'REDACTED_ARTIFACT_PENDING_REVIEW'
+      );
+    }
+
+    if (artifact.status !== 'ACTIVE') {
+      logAuthAuditEvent({
+        event: 'DOCUMENT_ACCESS_DENIED',
+        userId: options?.userId,
+        organizationId: organizationIdStr,
+        requestId: options?.requestId,
+        ip: options?.ip,
+        outcome: 'DENIED',
+        reason: 'REDACTED_ARTIFACT_INACTIVE',
+      });
+      throw new AppError(
+        'The redacted output artifact is not in an active downloadable state.',
+        409,
+        'REDACTED_ARTIFACT_NOT_AVAILABLE'
+      );
+    }
+
+    // 4. Verification Gate: Check independent verification status if a run exists
+    const verificationRun = await VerificationRunModel.findOne({
+      organizationId,
+      documentId,
+      outputArtifactId: artifact.outputArtifactId,
+    }).sort({ createdAt: -1 });
+
+    if (verificationRun) {
+      if (verificationRun.status === 'FAILED' || verificationRun.overallStatus === 'FAILED') {
+        logAuthAuditEvent({
+          event: 'DOCUMENT_ACCESS_DENIED',
+          userId: options?.userId,
+          organizationId: organizationIdStr,
+          requestId: options?.requestId,
+          ip: options?.ip,
+          outcome: 'DENIED',
+          reason: 'REDACTED_ARTIFACT_VERIFICATION_FAILED',
+        });
+        throw new AppError(
+          'The redacted output artifact failed independent verification and cannot be downloaded.',
+          409,
+          'REDACTED_ARTIFACT_VERIFICATION_FAILED'
+        );
+      }
+
+      if (verificationRun.status === 'RUNNING' || verificationRun.status === 'QUEUED') {
+        logAuthAuditEvent({
+          event: 'DOCUMENT_ACCESS_DENIED',
+          userId: options?.userId,
+          organizationId: organizationIdStr,
+          requestId: options?.requestId,
+          ip: options?.ip,
+          outcome: 'DENIED',
+          reason: 'REDACTED_ARTIFACT_VERIFICATION_PENDING',
+        });
+        throw new AppError(
+          'The redacted output artifact is currently undergoing verification.',
+          409,
+          'REDACTED_ARTIFACT_VERIFICATION_PENDING'
+        );
+      }
+    }
+
+    // 5. Storage Integrity & Cryptographic Checksum Verification
+    let targetPath = '';
+    try {
+      targetPath = storageService.getAbsolutePath(artifact.storageKey);
+    } catch {
+      targetPath = path.isAbsolute(artifact.storageKey)
+        ? artifact.storageKey
+        : path.join(process.cwd(), artifact.storageKey);
+    }
+
+    if (!fs.existsSync(targetPath)) {
+      // Check cwd fallback
+      const cwdFallback = path.join(process.cwd(), artifact.storageKey);
+      if (fs.existsSync(cwdFallback)) {
+        targetPath = cwdFallback;
+      } else {
+        logAuthAuditEvent({
+          event: 'DOCUMENT_ACCESS_DENIED',
+          userId: options?.userId,
+          organizationId: organizationIdStr,
+          requestId: options?.requestId,
+          ip: options?.ip,
+          outcome: 'DENIED',
+          reason: 'REDACTED_ARTIFACT_STORAGE_MISSING',
+        });
+        throw new AppError(
+          'The redacted output artifact file is missing from storage.',
+          404,
+          'STORAGE_OBJECT_NOT_FOUND'
+        );
+      }
+    }
+
+    const fileBuffer = await fs.promises.readFile(targetPath);
+    const computedChecksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+    if (computedChecksum !== artifact.outputChecksum) {
+      logger.error(
+        {
+          artifactId: artifact.outputArtifactId,
+          computedChecksum,
+          recordedChecksum: artifact.outputChecksum,
+        },
+        'Output artifact checksum integrity failure during download'
+      );
+      throw new AppError(
+        'Artifact checksum verification failed. The sanitized artifact may be corrupted.',
+        409,
+        'ARTIFACT_CHECKSUM_MISMATCH'
+      );
+    }
+
+    // 6. Audit Success Event
+    logAuthAuditEvent({
+      event: 'DOCUMENT_DOWNLOAD',
+      userId: options?.userId,
+      organizationId: organizationIdStr,
+      requestId: options?.requestId,
+      ip: options?.ip,
+      outcome: 'SUCCESS',
+      details: {
+        documentId: documentId.toString(),
+        outputArtifactId: artifact.outputArtifactId,
+        transformationRunId: artifact.transformationRunId,
+        outputChecksum: artifact.outputChecksum,
+        isRedactedDerivative: true,
+      },
+    });
+
+    const stream = fs.createReadStream(targetPath);
+    return { artifact, stream };
   }
 }
 

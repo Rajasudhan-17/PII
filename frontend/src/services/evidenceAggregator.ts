@@ -478,7 +478,7 @@ export class EvidenceAggregator {
     // 7. Email
     if (type.includes('EMAIL')) {
       const isSupportEmail = /^(support|sales|info|contact|help|billing|marketing|careers|press)@/i.test(lowerValue);
-      if (isSupportEmail || isOrgContext) {
+      if (isSupportEmail && isOrgContext) {
         return { decision: 'KEEP', confidence: 0.4, riskScore: 0.2 };
       }
       return { decision: 'REDACT', confidence: 0.98, riskScore: 0.85 };

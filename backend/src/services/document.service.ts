@@ -167,7 +167,9 @@ export class DocumentService {
   }
 
   /**
-   * Stream download an authorized document.
+   * Stream download an authorized original source document.
+   * NOTE: This method strictly downloads the original unmodified uploaded document.
+   * For transformed / redacted derivatives, use transformationService.downloadVerifiedRedactedArtifact().
    */
   public async downloadDocument(
     organizationId: string,
@@ -201,10 +203,23 @@ export class DocumentService {
       requestId,
       ip,
       outcome: 'SUCCESS',
-      details: { documentId: doc._id.toString() },
+      details: { documentId: doc._id.toString(), isOriginalUpload: true },
     });
 
     return { doc, stream };
+  }
+
+  /**
+   * Explicit semantic alias for downloading original unmodified source documents.
+   */
+  public async downloadOriginalDocument(
+    organizationId: string,
+    documentId: string,
+    userId?: string,
+    requestId?: string,
+    ip?: string
+  ): Promise<{ doc: IDocument; stream: Readable }> {
+    return this.downloadDocument(organizationId, documentId, userId, requestId, ip);
   }
 
   /**

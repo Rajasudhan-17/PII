@@ -64,9 +64,20 @@ export const documentsApi = {
   },
 
   // Download authenticated transformed / redacted artifact stream as Blob
-  downloadTransformedDocument: async (orgId: string, docId: string, filename?: string): Promise<void> => {
+  downloadTransformedDocument: async (
+    orgId: string,
+    docId: string,
+    filename?: string,
+    options?: { runId?: string; outputArtifactId?: string }
+  ): Promise<void> => {
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-    const url = `${API_BASE_URL}/organizations/${orgId}/documents/${docId}/download?transformed=true`;
+    const params = new URLSearchParams();
+    if (options?.runId) params.append('runId', options.runId);
+    if (options?.outputArtifactId) params.append('outputArtifactId', options.outputArtifactId);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+
+    // Prefer dedicated transformation route bound to exact run / artifact
+    const url = `${API_BASE_URL}/organizations/${orgId}/documents/${docId}/transformations/download${queryString}`;
 
     const authHeaders = getAuthHeaders();
     const response = await fetch(url, {
@@ -79,7 +90,20 @@ export const documentsApi = {
     });
 
     if (!response.ok) {
-      throw new Error(`Download failed with status ${response.status} (${response.statusText})`);
+      let errorMessage = `Download failed with status ${response.status} (${response.statusText})`;
+      try {
+        const errorJson = await response.json();
+        if (errorJson?.error?.message) {
+          errorMessage = errorJson.error.message;
+        } else if (errorJson?.message) {
+          errorMessage = errorJson.message;
+        } else if (errorJson?.error?.code) {
+          errorMessage = `Download failed: ${errorJson.error.code}`;
+        }
+      } catch {
+        // Non-JSON response
+      }
+      throw new Error(errorMessage);
     }
 
     const blob = await response.blob();

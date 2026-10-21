@@ -26,17 +26,33 @@ export const RedactionTransformationsView: React.FC<RedactionTransformationsView
 }) => {
   const { hasPermission } = useAuth();
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const handleDownloadRedacted = async () => {
     if (!doc?.organizationId || !doc?.id) return;
+    if (!outputArtifact || outputArtifact.status !== 'ACTIVE') {
+      setDownloadError(
+        outputArtifact?.status === 'PENDING_REVIEW'
+          ? 'The redacted output artifact is pending human review and cannot be downloaded.'
+          : 'A verified redacted output artifact is not currently available for download.'
+      );
+      return;
+    }
+    setDownloadError(null);
     setIsDownloading(true);
     try {
       await documentsApi.downloadTransformedDocument(
         doc.organizationId,
         doc.id,
-        outputArtifact?.originalFilename || `redacted_${doc.originalFilename}`
+        outputArtifact.originalFilename || `redacted_${doc.originalFilename}`,
+        {
+          runId: transformationRun?.transformationRunId,
+          outputArtifactId: outputArtifact.outputArtifactId,
+        }
       );
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to download redacted document';
+      setDownloadError(msg);
       console.error('Failed to download redacted document', err);
     } finally {
       setIsDownloading(false);
@@ -59,6 +75,12 @@ export const RedactionTransformationsView: React.FC<RedactionTransformationsView
         storage. Physical redactions are performed by generating a separate transformed artifact with
         its own cryptographic SHA-256 signature.
       </Alert>
+
+      {downloadError && (
+        <Alert variant="critical" title="Download Failed">
+          {downloadError}
+        </Alert>
+      )}
 
       {/* Side-by-Side Artifact Provenance Comparison */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -153,17 +175,23 @@ export const RedactionTransformationsView: React.FC<RedactionTransformationsView
                     {outputArtifact.outputChecksum}
                   </span>
                 </div>
-                <div className="pt-2">
+                <div className="pt-2 space-y-1.5">
                   <Button
                     variant="secondary"
                     size="sm"
                     className="w-full text-xs"
                     onClick={handleDownloadRedacted}
+                    disabled={isDownloading || outputArtifact.status !== 'ACTIVE'}
                     isLoading={isDownloading}
                     leftIcon={<Download className="w-3.5 h-3.5" />}
                   >
                     Download Redacted Document
                   </Button>
+                  {outputArtifact.status === 'PENDING_REVIEW' && (
+                    <p className="text-[11px] text-amber-700 font-medium text-center">
+                      Artifact is pending human review and cannot be downloaded until approved.
+                    </p>
+                  )}
                 </div>
               </>
             ) : (

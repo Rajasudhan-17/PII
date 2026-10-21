@@ -1,8 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { transformationService } from '../services/transformation/transformation.service';
 import { enqueueTransformationJob } from '../queues/transformation.queue';
-import { storageService } from '../services/storage/storage.service';
-import { AppError } from '../utils/AppError';
 
 export class TransformationController {
   public executeTransformation = async (
@@ -136,22 +134,29 @@ export class TransformationController {
     try {
       const { organizationId, documentId } = req.params;
       const runId = req.query.runId as string | undefined;
+      const outputArtifactId = req.query.outputArtifactId as string | undefined;
+      const userObj = (req as unknown as { user?: { id?: string; userId?: string } }).user;
+      const userId = userObj?.id || userObj?.userId;
+      const requestId = (req as unknown as { id?: string }).id;
 
-      const { artifact } = await transformationService.getTransformationArtifacts(
+      const { artifact, stream } = await transformationService.downloadVerifiedRedactedArtifact(
         documentId,
         organizationId,
-        runId
+        {
+          runId,
+          outputArtifactId,
+          userId,
+          requestId,
+          ip: req.ip,
+        }
       );
 
-      if (!artifact) {
-        throw new AppError('Transformed output artifact not found for this document.', 404, 'ARTIFACT_NOT_FOUND');
-      }
-
-      const stream = await storageService.getStream(artifact.storageKey);
       res.setHeader('Content-Type', artifact.mimeType || 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(artifact.originalFilename)}"`);
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Length', artifact.fileSize.toString());
+      res.setHeader('ETag', `"${artifact.outputChecksum}"`);
+      res.setHeader('X-Artifact-Checksum', artifact.outputChecksum);
       stream.pipe(res);
     } catch (err) {
       next(err);

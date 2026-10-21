@@ -1,10 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { documentService } from '../services/document.service';
+import { transformationService } from '../services/transformation/transformation.service';
 import { AppError } from '../utils/AppError';
 import { enqueueExtractionJob } from '../queues/extraction.queue';
 import { logger } from '../utils/logger';
-import { OutputArtifactModel } from '../models/outputArtifact.model';
-import { storageService } from '../services/storage/storage.service';
 
 export const uploadDocumentHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -97,25 +96,35 @@ export const downloadDocumentHandler = async (req: Request, res: Response, next:
     }
     const { documentId } = req.params;
 
+    // Fail-closed gate: If transformed / redacted version is requested, NEVER fall back to original!
     if (req.query.transformed === 'true' || req.query.version === 'redacted') {
-      const artifact = await OutputArtifactModel.findOne({
-        organizationId: req.tenantContext.organizationId,
-        sourceDocumentId: documentId,
-        status: { $in: ['ACTIVE', 'PENDING_REVIEW'] },
-      }).sort({ createdAt: -1 });
+      const runId = req.query.runId as string | undefined;
+      const outputArtifactId = req.query.outputArtifactId as string | undefined;
 
-      if (artifact) {
-        const stream = await storageService.getStream(artifact.storageKey);
-        res.setHeader('Content-Type', artifact.mimeType || 'application/octet-stream');
-        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(artifact.originalFilename)}"`);
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.setHeader('Content-Length', artifact.fileSize.toString());
-        stream.pipe(res);
-        return;
-      }
+      const { artifact, stream } = await transformationService.downloadVerifiedRedactedArtifact(
+        documentId,
+        req.tenantContext.organizationId,
+        {
+          runId,
+          outputArtifactId,
+          userId: req.user?.id,
+          requestId: req.id,
+          ip: req.ip,
+        }
+      );
+
+      res.setHeader('Content-Type', artifact.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(artifact.originalFilename)}"`);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Length', artifact.fileSize.toString());
+      res.setHeader('ETag', `"${artifact.outputChecksum}"`);
+      res.setHeader('X-Artifact-Checksum', artifact.outputChecksum);
+      stream.pipe(res);
+      return;
     }
 
-    const { doc, stream } = await documentService.downloadDocument(
+    // Normal path: Caller explicitly requested the original uploaded source document
+    const { doc, stream } = await documentService.downloadOriginalDocument(
       req.tenantContext.organizationId,
       documentId,
       req.user?.id,
