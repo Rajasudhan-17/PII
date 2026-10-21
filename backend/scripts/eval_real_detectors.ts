@@ -14,7 +14,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'eval_secret_key_minimum_32_c
 import fs from 'fs';
 import path from 'path';
 import { initializeDefaultDetectors, RawDetectedCandidate } from '../src/services/pii/detectors';
-import { suppressContainedPhoneCandidates } from '../src/services/pii/utils/candidateMerger.utils';
+import { suppressContainedPhoneCandidates, suppressContainedAddressCandidates } from '../src/services/pii/utils/candidateMerger.utils';
 
 interface GoldEntity {
   type: string;
@@ -174,8 +174,11 @@ export async function runEvaluation(options: {
       }
     }
 
-    // Suppress overlapping phone candidates contained within stronger identifiers (Credit Card, IBAN, SSN, Aadhaar, PAN)
-    const finalPredictions = suppressContainedPhoneCandidates(predictions);
+    // Suppress overlapping candidates:
+    // 1. Phone numbers contained within stronger identifiers (Credit Card, IBAN, SSN, Aadhaar, PAN)
+    // 2. Fragmented city/address candidates contained within composite addresses
+    const phoneFiltered = suppressContainedPhoneCandidates(predictions);
+    const finalPredictions = suppressContainedAddressCandidates(phoneFiltered);
     totalPredictions += finalPredictions.length;
 
     // Match predictions to gold entities

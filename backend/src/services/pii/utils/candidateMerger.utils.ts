@@ -54,13 +54,48 @@ export function suppressContainedPhoneCandidates(
   });
 }
 
+/**
+ * Suppresses fragmented CITY candidates or smaller address candidates that are fully
+ * contained within a composite POSTAL_ADDRESS candidate.
+ */
+export function suppressContainedAddressCandidates(
+  candidates: RawDetectedCandidate[]
+): RawDetectedCandidate[] {
+  if (candidates.length <= 1) return candidates;
+
+  const addresses = candidates.filter((c) => c.type === PIIType.POSTAL_ADDRESS);
+  if (addresses.length === 0) return candidates;
+
+  return candidates.filter((c) => {
+    if (c.type !== PIIType.CITY && c.type !== PIIType.POSTAL_ADDRESS) {
+      return true;
+    }
+
+    for (const addr of addresses) {
+      if (c === addr) continue;
+      // If c is strictly contained within or heavily overlapping a longer address
+      if (
+        c.startOffset >= addr.startOffset &&
+        c.endOffset <= addr.endOffset &&
+        c.endOffset - c.startOffset < addr.endOffset - addr.startOffset
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
 export function mergeCandidates(
   candidates: RawDetectedCandidate[]
 ): RawDetectedCandidate[] {
   if (candidates.length <= 1) return candidates;
 
   // Suppress overlapping phone candidates contained within stronger identifiers
-  const preFiltered = suppressContainedPhoneCandidates(candidates);
+  const phoneFiltered = suppressContainedPhoneCandidates(candidates);
+  // Suppress fragmented address/city candidates contained within composite addresses
+  const preFiltered = suppressContainedAddressCandidates(phoneFiltered);
 
   // Group candidates by blockId
   const blockGroups = new Map<string, RawDetectedCandidate[]>();

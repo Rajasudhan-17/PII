@@ -1,5 +1,6 @@
 import { INERProvider, INEREntity } from './ner.interface';
 import { PIIType } from '../../../config/piiTaxonomy';
+import { isKnownCity, isKnownState } from '../data/gazetteer';
 
 export class HeuristicNERProvider implements INERProvider {
   public name = 'HeuristicNERProvider';
@@ -14,9 +15,26 @@ export class HeuristicNERProvider implements INERProvider {
   private PERSON_REGEX = /\b(?:Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.)[^\S\r\n]+[A-Z][a-z]+(?:[^\S\r\n]+[A-Z][a-z]+){1,2}\b|\b[A-Z][a-z]+[^\S\r\n]+[A-Z][a-z]+\b/g;
   private CONTEXTUAL_PERSON_REGEX =
     /(?:(?:Dear|Sincerely|Regards)\s+|(?:Candidate|Employee|Applicant|Patient|Client|Signatory|Witness|Doctor)?\s*(?:Full\s+)?(?:Name|Account\s+Holder|Reported\s+By|Physician|Doctor|Reporting\s+Manager|Authorized\s+Representative)\s*[:=-]\s*)([a-zA-Z]+(?:[^\S\r\n]+[a-zA-Z]+){1,2})\b/gi;
-  private DOB_REGEX = /\b(?:DOB|Date of Birth|Born|Birthdate)[:\s]+(?:\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\b/gi;
-  private ADDRESS_REGEX = /\b\d{1,5}\s+(?:[A-Z][a-zA-Z0-9#.\s]{2,30})\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct)\b/gi;
-  private CITY_REGEX = /\b(?:New York|San Francisco|Los Angeles|Chicago|Houston|London|Paris|Tokyo|Berlin|Toronto|Mumbai|Delhi|Bangalore)\b/g;
+
+  // Extended DOB patterns with strict DOB context:
+  // 1. Numeric: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
+  // 2. Ordinal Day-First: 24th Nov 1992, 17th Aug 1988, 3rd March 1995, 17 August 1988
+  // 3. Month-First: August 17, 1988, November 24, 1992, March 3rd, 1995
+  private DOB_PATTERN =
+    /\b(?:DOB|Date\s+of\s+Birth|D\.O\.B\.|Born(?:\s+on)?|Birthdate|Birth\s+Date)[:\s=]+((?:\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{4}|\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*[,\s]+\d{4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}))\b/gi;
+
+  // Explicit address labels capturing the entire composite address line
+  private ADDR_LABEL_REGEX =
+    /(?:Residential\s+Address|Billing\s+Location|Billing\s+Address|Shipping\s+Address|Mailing\s+Address|Permanent\s+Address|Current\s+Address|Street\s+Address|Home\s+Address|Office\s+Address|Postal\s+Address|Address|Location)\s*[:=-]\s*([^\n\r]+)/gi;
+
+  // Structural US/Global composite address (e.g. "240 Washington Boulevard, San Francisco")
+  private US_COMPOSITE_ADDR_REGEX =
+    /\b(\d{1,5}\s+(?:[A-Z][a-zA-Z0-9#.\s]{2,30})\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Way|Circle|Cir)\b(?:,\s*[A-Za-z\s]+?(?:,?\s*[A-Z]{2}?\s*\d{5}(?:-\d{4})?)?)?)/gi;
+
+  // Structural Indian composite address (e.g. "28/10 Vashi Sector 17, Kolkata 573935")
+  private INDIAN_COMPOSITE_ADDR_REGEX =
+    /\b(\d{1,4}(?:\/\d{1,4})?\s*,?\s+[A-Za-z0-9#.\s-]{2,45}?(?:Road|Rd|Street|St|Avenue|Ave|Boulevard|Blvd|Lane|Ln|Drive|Dr|Sector\s+\d+|Block(?:\s+\d+[a-zA-Z]*)?|Cross|Main|Nagar|Salai|Colony|Marg|Layout)\b(?:[^\n\r,]*),\s*[A-Za-z\s]+?(?:\s+\d{6})?)\b/gi;
+
   private REF_ID_REGEX = /\b(?:Patient\s+(?:Ref|Reference|ID)|MRN|Record\s+Number|Account\s+Number)[:\s]+([A-Z0-9_-]{4,20})\b/gi;
 
   private BUSINESS_EXCLUSIONS = new Set([
@@ -110,45 +128,102 @@ export class HeuristicNERProvider implements INERProvider {
       });
     }
 
-    // 2. Date of Birth
-    this.DOB_REGEX.lastIndex = 0;
-    while ((match = this.DOB_REGEX.exec(text)) !== null) {
-      const matchText = match[0];
-      const datePartMatch = matchText.match(/(?:\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})/i);
-      const targetText = datePartMatch ? datePartMatch[0] : matchText;
-      const offsetDelta = datePartMatch ? matchText.indexOf(datePartMatch[0]) : 0;
+    // 3. Date of Birth (requiring strict DOB context)
+    this.DOB_PATTERN.lastIndex = 0;
+    while ((match = this.DOB_PATTERN.exec(text)) !== null) {
+      const targetText = match[1].trim();
+      const offsetDelta = match[0].indexOf(targetText);
+      const start = match.index + offsetDelta;
+      const end = start + targetText.length;
+
       entities.push({
         type: PIIType.DATE_OF_BIRTH,
         text: targetText,
-        startOffset: match.index + offsetDelta,
-        endOffset: match.index + offsetDelta + targetText.length,
-        confidence: 0.9,
+        startOffset: start,
+        endOffset: end,
+        confidence: 0.95,
       });
     }
 
-    // 3. Postal Address
-    this.ADDRESS_REGEX.lastIndex = 0;
-    while ((match = this.ADDRESS_REGEX.exec(text)) !== null) {
-      const matchText = match[0];
+    // 4. Postal Address
+    const addressSpans: Array<{ start: number; end: number; text: string; confidence: number }> = [];
+
+    // 4a. Explicit Address Labels (e.g. "Residential Address: 28/10 Vashi Sector 17, Kolkata 573935")
+    this.ADDR_LABEL_REGEX.lastIndex = 0;
+    while ((match = this.ADDR_LABEL_REGEX.exec(text)) !== null) {
+      const rawVal = match[1].trim();
+      if (!rawVal) continue;
+
+      // Validate address indicators in the extracted line:
+      // Must contain numbers, locality/road indicator or known city/state/pincode
+      const hasNumber = /\d+/.test(rawVal);
+      const hasLocality =
+        /\b(?:Street|St|Road|Rd|Avenue|Ave|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Sector|Block|Cross|Main|Nagar|Salai|Colony|Marg|Layout|Park|Plaza|Floor|Flat|Door|Apartment|Tower)\b/i.test(
+          rawVal
+        );
+      const words = rawVal.split(/[,\s]+/);
+      const hasCityOrState = words.some((w) => isKnownCity(w) || isKnownState(w));
+      const hasPinOrZip = /\b\d{5,6}\b/.test(rawVal);
+
+      if (hasNumber && (hasLocality || hasCityOrState || hasPinOrZip)) {
+        const offsetDelta = match[0].indexOf(rawVal);
+        const start = match.index + offsetDelta;
+        const end = start + rawVal.length;
+
+        addressSpans.push({
+          start,
+          end,
+          text: rawVal,
+          confidence: 0.95,
+        });
+      }
+    }
+
+    // 4b. Structural US / Global Composite Addresses
+    this.US_COMPOSITE_ADDR_REGEX.lastIndex = 0;
+    while ((match = this.US_COMPOSITE_ADDR_REGEX.exec(text)) !== null) {
+      const matchText = match[1].trim();
+      const start = match.index;
+      const end = start + matchText.length;
+
+      // Check if already captured in a larger span
+      const alreadyCaptured = addressSpans.some((a) => a.start <= start && a.end >= end);
+      if (!alreadyCaptured) {
+        addressSpans.push({
+          start,
+          end,
+          text: matchText,
+          confidence: 0.9,
+        });
+      }
+    }
+
+    // 4c. Structural Indian Composite Addresses
+    this.INDIAN_COMPOSITE_ADDR_REGEX.lastIndex = 0;
+    while ((match = this.INDIAN_COMPOSITE_ADDR_REGEX.exec(text)) !== null) {
+      const matchText = match[1].trim();
+      const start = match.index;
+      const end = start + matchText.length;
+
+      const alreadyCaptured = addressSpans.some((a) => a.start <= start && a.end >= end);
+      if (!alreadyCaptured) {
+        addressSpans.push({
+          start,
+          end,
+          text: matchText,
+          confidence: 0.9,
+        });
+      }
+    }
+
+    // Push unified postal address entities
+    for (const addr of addressSpans) {
       entities.push({
         type: PIIType.POSTAL_ADDRESS,
-        text: matchText,
-        startOffset: match.index,
-        endOffset: match.index + matchText.length,
-        confidence: 0.8,
-      });
-    }
-
-    // 4. City
-    this.CITY_REGEX.lastIndex = 0;
-    while ((match = this.CITY_REGEX.exec(text)) !== null) {
-      const matchText = match[0];
-      entities.push({
-        type: PIIType.CITY,
-        text: matchText,
-        startOffset: match.index,
-        endOffset: match.index + matchText.length,
-        confidence: 0.85,
+        text: addr.text,
+        startOffset: addr.start,
+        endOffset: addr.end,
+        confidence: addr.confidence,
       });
     }
 

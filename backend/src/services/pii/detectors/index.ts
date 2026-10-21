@@ -5,6 +5,8 @@ import { CreditCardDetector } from './creditCard.detector';
 import { IBANDetector } from './iban.detector';
 import { AuthSecurityDetector } from './authSecurity.detector';
 import { NationalIDDetector } from './nationalId.detector';
+import { PassportDetector } from './passport.detector';
+import { DrivingLicenseDetector } from './drivingLicense.detector';
 import { NERDetector } from './ner.detector';
 import { PresidioNERProvider } from '../ner/presidio.provider';
 import { HeuristicNERProvider } from '../ner/heuristicNER.provider';
@@ -17,6 +19,8 @@ export * from './creditCard.detector';
 export * from './iban.detector';
 export * from './authSecurity.detector';
 export * from './nationalId.detector';
+export * from './passport.detector';
+export * from './drivingLicense.detector';
 export * from './ner.detector';
 export * from '../ner/ner.interface';
 export * from '../ner/heuristicNER.provider';
@@ -33,6 +37,8 @@ export function initializeDefaultDetectors(): PIIDetectorRegistry {
     registry.register(new IBANDetector());
     registry.register(new AuthSecurityDetector());
     registry.register(new NationalIDDetector());
+    registry.register(new PassportDetector());
+    registry.register(new DrivingLicenseDetector());
 
     const nerServiceUrl = process.env.NER_SERVICE_URL;
     if (nerServiceUrl && nerServiceUrl.trim().length > 0) {

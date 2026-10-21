@@ -187,6 +187,12 @@ export class PresidioNERProvider implements INERProvider {
         throw new Error('Presidio NER service returned malformed payload (missing entities array)');
       }
 
+      // 1. Extract fallback entities first so we know what composite addresses exist
+      const fallbackEntities = await this.fallbackProvider.extractEntities(text);
+      const postalAddresses = fallbackEntities.filter((e) => e.type === PIIType.POSTAL_ADDRESS);
+      const nonPersonFallbacks = fallbackEntities.filter((e) => e.type !== PIIType.PERSON_NAME);
+      const contextualPersonFallbacks = fallbackEntities.filter((e) => e.type === PIIType.PERSON_NAME && e.confidence >= 0.94);
+
       const entities: INEREntity[] = [];
       for (const item of data.entities) {
         if (
@@ -213,23 +219,29 @@ export class PresidioNERProvider implements INERProvider {
             });
           }
         } else if (item.type === 'LOCATION') {
-          if (!/\b(?:expedition|headquarters|department|division|operations|center|station)\b/i.test(entityText)) {
+          // If this location is inside or overlapping an existing postal address, do not fragment it
+          const overlapsAddress = postalAddresses.some(
+            (addr) => item.start < addr.endOffset && item.end > addr.startOffset
+          );
+          if (overlapsAddress) {
+            continue;
+          }
+
+          // Check if explicit address context precedes this location
+          const precedingContext = text.slice(Math.max(0, item.start - 40), item.start);
+          const hasAddressContext = /(?:address|location|residence|billing|shipping)\s*[:=-]\s*$/i.test(precedingContext);
+          if (hasAddressContext) {
             entities.push({
-              type: PIIType.CITY,
+              type: PIIType.POSTAL_ADDRESS,
               text: entityText,
               startOffset: item.start,
               endOffset: item.end,
               confidence: Math.min(1.0, Math.max(0.1, item.score)),
             });
           }
+          // Otherwise, isolated city/location mentions are non-PII geographic references (controlling FP)
         }
       }
-
-      // Preserve non-PERSON extractions (e.g. DOB, Address) and high-confidence contextual
-      // names (e.g. ALL-CAPS names after labels like "Account Holder: CHETAN SHAH") from fallback
-      const fallbackEntities = await this.fallbackProvider.extractEntities(text);
-      const nonPersonFallbacks = fallbackEntities.filter((e) => e.type !== PIIType.PERSON_NAME);
-      const contextualPersonFallbacks = fallbackEntities.filter((e) => e.type === PIIType.PERSON_NAME && e.confidence >= 0.94);
 
       for (const cp of contextualPersonFallbacks) {
         const overlaps = entities.some((ex) => cp.startOffset < ex.endOffset && cp.endOffset > ex.startOffset);

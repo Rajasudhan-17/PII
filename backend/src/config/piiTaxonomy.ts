@@ -26,6 +26,8 @@ export enum PIIType {
   DATE_OF_BIRTH = 'DATE_OF_BIRTH',
   IP_ADDRESS = 'IP_ADDRESS',
   GPS_COORDINATES = 'GPS_COORDINATES',
+  PASSPORT = 'PASSPORT',
+  DRIVING_LICENSE = 'DRIVING_LICENSE',
   UNKNOWN_PII = 'UNKNOWN_PII',
 }
 
@@ -112,6 +114,16 @@ export const PII_TYPE_METADATA_MAP: Record<PIIType, PIITypeMetadata> = {
     category: PIICategory.LOCATION_DATA,
     defaultSeverity: PIISeverity.MEDIUM,
     defaultSensitivityScore: 0.6,
+  },
+  [PIIType.PASSPORT]: {
+    category: PIICategory.GOVERNMENT_ID,
+    defaultSeverity: PIISeverity.HIGH,
+    defaultSensitivityScore: 0.9,
+  },
+  [PIIType.DRIVING_LICENSE]: {
+    category: PIICategory.GOVERNMENT_ID,
+    defaultSeverity: PIISeverity.HIGH,
+    defaultSensitivityScore: 0.85,
   },
   [PIIType.UNKNOWN_PII]: {
     category: PIICategory.SENSITIVE_PERSONAL_DATA,
