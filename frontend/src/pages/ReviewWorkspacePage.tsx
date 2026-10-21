@@ -565,6 +565,15 @@ export const ReviewWorkspacePage: React.FC = () => {
             <div className="space-y-2 pt-2">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[#92400E] bg-[#FEF3C7] px-2 py-1 rounded flex items-center justify-between">
                 <span>NEEDS REVIEW · {filteredReviewItems.length} ITEMS</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    filteredReviewItems.forEach((item) => redactFinding(item.id));
+                  }}
+                  className="bg-[#111827] text-white hover:bg-black px-2 py-0.5 rounded text-[9px] font-bold capitalize tracking-normal transition-colors shadow-xs"
+                >
+                  Redact All
+                </button>
               </div>
 
               {filteredReviewItems.map((f) => (

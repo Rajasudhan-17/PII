@@ -28,20 +28,24 @@ export class PhoneDetector implements IPIIDetector {
     this.PHONE_REGEX.lastIndex = 0;
 
     while ((match = this.PHONE_REGEX.exec(text)) !== null) {
-      const matchText = match[0];
+      const matchText = match[0].replace(/[.,;:!?]+$/, '').trim();
       const digitsOnly = matchText.replace(/\D/g, '');
 
+      const hasFormatting = /[+\-().\s]/.test(matchText);
       if (digitsOnly.length < 7 || digitsOnly.length > 15) {
         continue;
       }
+      if (!hasFormatting && digitsOnly.length < 10) {
+        continue;
+      }
 
-      if (/^\d{4}-\d{2}-\d{2}$/.test(matchText)) {
+      if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(matchText) || /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}$/.test(matchText)) {
         continue;
       }
 
       // Precision guard: skip if preceded by reference / invoice / code prefix (e.g. "INV-2026-88129", "HOSP-REG-2026-99182")
       const precedingPrefix = text.slice(Math.max(0, match.index - 35), match.index);
-      if (/(?:inv|ref|hosp|reg|case|ord|batch|code|ticket|sku|device|mod)[-_]$/i.test(precedingPrefix.trimEnd())) {
+      if (/(?:inv|ref|hosp|reg|case|ord|batch|code|ticket|sku|device|mod|serial|sn)[-_:\s#]+$/i.test(precedingPrefix.trimEnd())) {
         continue;
       }
       if (/(?:invoice|billing|registration|hospital|order|case|matter|ticket|product|model|batch|tracking|sku)\s*(?:number|reference|ref|id|code|#)?\s*[:=-]\s*(?:[A-Z0-9_-]+[-_])?$/i.test(precedingPrefix)) {

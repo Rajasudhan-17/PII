@@ -571,20 +571,44 @@ export function detectPII(text: string, ruleSet: RuleSet): FindingItem[] {
 
   // 2. Phone Numbers
   if (enabled.phones !== false) {
-    const phoneRegex = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b|\b(?:\+91|0)?[6-9]\d{9}\b/g;
+    const phoneRegex =
+      /(?:(?:\+|00)\d{1,3}[-.\s]*)?(?:\(?\d{2,5}\)?[-.\s]*)?\d{3,4}[-.\s]*\d{3,5}\b/g;
     let match: RegExpExecArray | null;
     while ((match = phoneRegex.exec(text)) !== null) {
-      const val = match[0].trim();
-      const digitsOnly = val.replace(/\D/g, '');
-      if (digitsOnly.length >= 10 && digitsOnly.length <= 15) {
-        candidates.push({
-          type: 'PHONE_NUMBER',
-          label: 'PHONE',
-          value: val,
-          confidence: 95,
-          reason: 'Valid international / national phone number format.',
-        });
+      const rawMatch = match[0].replace(/[.,;:!?]+$/, '').trim();
+      const digitsOnly = rawMatch.replace(/\D/g, '');
+
+      // Guard: must have between 7 and 15 digits (standard E.164 range)
+      // Unformatted plain digits without +, (, or - require at least 10 digits to prevent short order IDs matching
+      const hasFormatting = /[+\-().\s]/.test(rawMatch);
+      if (digitsOnly.length < 7 || digitsOnly.length > 15) {
+        continue;
       }
+      if (!hasFormatting && digitsOnly.length < 10) {
+        continue;
+      }
+
+      // Guard: skip ISO and standard dates (e.g. 2026-10-21, 21/10/2026)
+      if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(rawMatch) || /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}$/.test(rawMatch)) {
+        continue;
+      }
+
+      // Precision guard: skip if preceded by reference / invoice / code prefix
+      const precedingPrefix = text.slice(Math.max(0, match.index - 35), match.index);
+      if (/(?:inv|ref|hosp|reg|case|ord|batch|code|ticket|sku|device|mod|serial|sn)[-_:\s#]+$/i.test(precedingPrefix.trimEnd())) {
+        continue;
+      }
+      if (/(?:invoice|billing|registration|hospital|order|case|matter|ticket|product|model|batch|tracking|sku)\s*(?:number|reference|ref|id|code|#)?\s*[:=-]\s*(?:[A-Z0-9_-]+[-_])?$/i.test(precedingPrefix)) {
+        continue;
+      }
+
+      candidates.push({
+        type: 'PHONE_NUMBER',
+        label: 'PHONE',
+        value: rawMatch,
+        confidence: 95,
+        reason: 'Valid international / national phone number format.',
+      });
     }
   }
 
@@ -872,8 +896,13 @@ export function applyRedactionsToText(
   const sorted = [...redactList].sort((a, b) => b.value.length - a.value.length);
 
   for (const item of sorted) {
+    if (!item.value) continue;
     const replacement = getRedactionReplacement(item.value, item.label, look);
-    const safeRegex = new RegExp(item.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    // Allow flexible whitespace matching (handles \u00a0 non-breaking spaces or double spaces)
+    const escaped = item.value
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\s+/g, '[\\s\\u00A0]+');
+    const safeRegex = new RegExp(escaped, 'g');
     result = result.replace(safeRegex, replacement);
   }
 

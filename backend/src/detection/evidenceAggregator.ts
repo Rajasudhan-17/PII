@@ -70,7 +70,9 @@ const STRONG_PII_CONTEXT_KEYWORDS = [
   'dob', 'date of birth', 'birth date', 'born on', 'ssn', 'social security',
   'aadhaar', 'uidai', 'pan', 'permanent account number', 'passport',
   'account number', 'policy number', 'member id', 'phone', 'mobile',
-  'telephone', 'cell', 'email', 'e-mail', 'address', 'residential address',
+  'telephone', 'cell', 'tel', 'mob', 'ph', 'ph.', 'contact', 'call', 'reach',
+  'contact number', 'phone number', 'cell number', 'fax',
+  'email', 'e-mail', 'address', 'residential address',
   'beneficiary', 'cardholder', 'tax id', 'national id', 'driving license',
   'full name', 'first name', 'last name', 'holder name', 'dear', 'sincerely'
 ];
@@ -179,7 +181,7 @@ export class EvidenceAggregator {
 
     // Contextual prefix (e.g. "Name: Priya", "Phone: +91", "Reporting Manager: Arun")
     const immediatePrefixMatch = new RegExp(
-      `(?:name|patient|employee|manager|director|physician|doctor|holder|applicant|signatory|representative|witness|dob|phone|email|card|ssn|aadhaar|pan)\\s*[:=-]\\s*${escapeRegex(candidateValue)}`,
+      `(?:name|patient|employee|manager|director|physician|doctor|holder|applicant|signatory|representative|witness|dob|phone|telephone|tel|ph|mobile|mob|cell|fax|contact|email|card|ssn|aadhaar|pan)\\s*[:=-]\\s*${escapeRegex(candidateValue)}`,
       'i'
     );
     if (immediatePrefixMatch.test(contextWindow)) {
@@ -336,7 +338,10 @@ export class EvidenceAggregator {
       let places = 1;
       if (val.length > 0 && fullText) {
         const esc = escapeRegex(val);
-        const matches = fullText.match(new RegExp(`\\b${esc}\\b`, 'gi'));
+        const startsWithWord = /^\w/.test(val);
+        const endsWithWord = /\w$/.test(val);
+        const pattern = `${startsWithWord ? '\\b' : ''}${esc}${endsWithWord ? '\\b' : ''}`;
+        const matches = fullText.match(new RegExp(pattern, 'gi'));
         places = matches ? Math.max(1, matches.length) : 1;
       }
 
@@ -468,7 +473,7 @@ export class EvidenceAggregator {
       contextScore,
       isOrgContext,
       proximityCount,
-      evidenceCount,
+      evidenceCount: _evidenceCount,
       alwaysRedactSet,
       neverRedactSet,
     } = params;
@@ -543,13 +548,14 @@ export class EvidenceAggregator {
 
     // 8. Phone Numbers
     if (type.includes('PHONE')) {
-      if (contextScore < 0) {
+      if (contextScore < -0.2) {
         return { decision: 'KEEP', confidence: 0.2, riskScore: 0.1 };
       }
-      if (contextScore > 0.2 || (proximityCount > 0 && contextScore >= 0) || evidenceCount > 1) {
-        return { decision: 'REDACT', confidence: 0.94, riskScore: 0.8 };
+      if (contextScore < 0) {
+        return { decision: 'REVIEW', confidence: 0.65, riskScore: 0.6 };
       }
-      return { decision: 'REVIEW', confidence: 0.65, riskScore: 0.6 };
+      // Valid phone number without negative business context -> REDACT
+      return { decision: 'REDACT', confidence: Math.max(0.92, candidate.confidence), riskScore: 0.85 };
     }
 
     // 9. Person Names (High Precision Engine)
