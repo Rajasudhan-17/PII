@@ -774,22 +774,36 @@ export function detectPII(text: string, ruleSet: RuleSet): FindingItem[] {
 
   // 11. Names (Heuristic & Contextual)
   if (enabled.names !== false) {
+    const fieldExclusions = new Set([
+      'Date', 'Email', 'Phone', 'Address', 'Pan', 'Aadhaar', 'Identifier', 'Dob',
+      'Birth', 'Mobile', 'Tel', 'Contact', 'City', 'State', 'Zip', 'Country', 'Code'
+    ]);
+
     // Contextual: Dear [Name], Sincerely [Name], Name: [Name]
-    const contextualNameRegex = /(?:Dear|Sincerely|Regards|Name:)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/g;
+    // Use [^\S\r\n]+ to strictly prevent matching across line breaks into the next line's header
+    const contextualNameRegex =
+      /(?:Dear|Sincerely|Regards|(?:Full\s+)?Name|Patient(?:\s+Name)?|Candidate|Applicant|Employee|Client|Physician|Doctor)[:=-]?[^\S\r\n]+([A-Z][a-z]+(?:[^\S\r\n]+[A-Z][a-z]+){0,3})\b/g;
     let match: RegExpExecArray | null;
     while ((match = contextualNameRegex.exec(text)) !== null) {
-      const val = match[1].trim();
-      candidates.push({
-        type: 'PERSON_NAME',
-        label: 'NAME',
-        value: val,
-        confidence: 88,
-        reason: 'Person name following formal salutation or signature.',
-      });
+      let val = match[1].trim();
+      const words = val.split(/[^\S\r\n]+/);
+      while (words.length > 1 && fieldExclusions.has(words[words.length - 1])) {
+        words.pop();
+      }
+      val = words.join(' ').trim();
+      if (val.length >= 2 && !fieldExclusions.has(val)) {
+        candidates.push({
+          type: 'PERSON_NAME',
+          label: 'NAME',
+          value: val,
+          confidence: 88,
+          reason: 'Person name following formal salutation or signature.',
+        });
+      }
     }
 
-    // Two-word capitalized tokens that aren't already captured
-    const capitalizedNameRegex = /\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b/g;
+    // Two-word capitalized tokens that aren't already captured (strictly horizontal whitespace)
+    const capitalizedNameRegex = /\b[A-Z][a-z]{2,}[^\S\r\n]+[A-Z][a-z]{2,}\b/g;
     const commonExclusions = new Set([
       'Employment Offer', 'Offer Letter', 'Data Analyst', 'Northwind Traders',
       'Head People', 'Lakeview Road', 'October November', 'United States',

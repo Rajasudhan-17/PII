@@ -71,4 +71,25 @@ describe('Phone Number Detection and Proper Redaction', () => {
       expect(phoneFinding).toBeUndefined();
     }
   });
+
+  it('should accurately detect and redact names followed immediately by line breaks without capturing next line label', () => {
+    const multilineDoc = `Person 1\n\nName: Meera Iyer\nDate of Birth: 03/11/1992\n\nPerson 2\n\nName: Vikram Shah\nDate of Birth: 25/02/1979\n`;
+    const findings = detectPII(multilineDoc, standardRuleSet);
+
+    const meeraFinding = findings.find((f) => f.value === 'Meera Iyer');
+    expect(meeraFinding).toBeDefined();
+    expect(meeraFinding!.type).toBe('PERSON_NAME');
+    expect(meeraFinding!.status).toBe('redact');
+
+    const vikramFinding = findings.find((f) => f.value === 'Vikram Shah');
+    expect(vikramFinding).toBeDefined();
+    expect(vikramFinding!.type).toBe('PERSON_NAME');
+    expect(vikramFinding!.status).toBe('redact');
+
+    const redacted = applyRedactionsToText(multilineDoc, findings, 'bar');
+    expect(redacted).not.toContain('Meera Iyer');
+    expect(redacted).not.toContain('Vikram Shah');
+    expect(redacted).toContain('Name: █');
+    expect(redacted).toContain('Date of Birth:');
+  });
 });
