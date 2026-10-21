@@ -1,0 +1,358 @@
+{
+  "split": "heldout",
+  "totalDocuments": 175,
+  "groundTruthCount": 493,
+  "predictionCount": 466,
+  "overall": {
+    "tp": 463,
+    "fp": 3,
+    "fn": 30,
+    "precision": 99.4,
+    "recall": 93.9,
+    "f1": 96.6
+  },
+  "perType": {
+    "EMAIL_ADDRESS": {
+      "tp": 78,
+      "fp": 0,
+      "fn": 0,
+      "precision": 100,
+      "recall": 100,
+      "f1": 100
+    },
+    "PHONE_NUMBER": {
+      "tp": 59,
+      "fp": 0,
+      "fn": 0,
+      "precision": 100,
+      "recall": 100,
+      "f1": 100
+    },
+    "PASSPORT": {
+      "tp": 20,
+      "fp": 0,
+      "fn": 0,
+      "precision": 100,
+      "recall": 100,
+      "f1": 100
+    },
+    "DRIVING_LICENSE": {
+      "tp": 20,
+      "fp": 0,
+      "fn": 0,
+      "precision": 100,
+      "recall": 100,
+      "f1": 100
+    },
+    "PERSON_NAME": {
+      "tp": 112,
+      "fp": 0,
+      "fn": 4,
+      "precision": 100,
+      "recall": 96.6,
+      "f1": 98.3
+    },
+    "DATE_OF_BIRTH": {
+      "tp": 39,
+      "fp": 0,
+      "fn": 0,
+      "precision": 100,
+      "recall": 100,
+      "f1": 100
+    },
+    "POSTAL_ADDRESS": {
+      "tp": 39,
+      "fp": 0,
+      "fn": 0,
+      "precision": 100,
+      "recall": 100,
+      "f1": 100
+    },
+    "CREDIT_CARD_NUMBER": {
+      "tp": 19,
+      "fp": 2,
+      "fn": 0,
+      "precision": 90.5,
+      "recall": 100,
+      "f1": 95
+    },
+    "INDIAN_PAN": {
+      "tp": 27,
+      "fp": 0,
+      "fn": 0,
+      "precision": 100,
+      "recall": 100,
+      "f1": 100
+    },
+    "IBAN": {
+      "tp": 5,
+      "fp": 1,
+      "fn": 14,
+      "precision": 83.3,
+      "recall": 26.3,
+      "f1": 40
+    },
+    "US_SSN": {
+      "tp": 25,
+      "fp": 0,
+      "fn": 0,
+      "precision": 100,
+      "recall": 100,
+      "f1": 100
+    },
+    "AUTH_TOKEN_KEY": {
+      "tp": 13,
+      "fp": 0,
+      "fn": 6,
+      "precision": 100,
+      "recall": 68.4,
+      "f1": 81.2
+    },
+    "INDIAN_AADHAAR": {
+      "tp": 7,
+      "fp": 0,
+      "fn": 6,
+      "precision": 100,
+      "recall": 53.8,
+      "f1": 70
+    }
+  },
+  "falsePositives": [
+    {
+      "document": "doc_064.txt",
+      "type": "CREDIT_CARD_NUMBER",
+      "text": "3135 1823 3749 8941",
+      "startOffset": 141,
+      "endOffset": 160,
+      "snippet": "\"...45 Settlement IBAN: DE67 3135 1823 3749 8941 34 Income Tax PAN: MFKAA...\""
+    },
+    {
+      "document": "doc_136.txt",
+      "type": "CREDIT_CARD_NUMBER",
+      "text": "5220 4727 7901 0432",
+      "startOffset": 142,
+      "endOffset": 161,
+      "snippet": "\"...19 Settlement IBAN: FR73 5220 4727 7901 0432 8986 Income Tax PAN: KHK...\""
+    },
+    {
+      "document": "doc_236.txt",
+      "type": "IBAN",
+      "text": "KA12 20192969410\nInternal Employee",
+      "startOffset": 241,
+      "endOffset": 275,
+      "snippet": "\"...5409307 Driving Licence: KA12 20192969410 Internal Employee Badge ID: 981273645 Depa...\""
+    }
+  ],
+  "falseNegatives": [
+    {
+      "document": "doc_010.txt",
+      "type": "IBAN",
+      "text": "GB81 WEST 8710 1226 9166 97",
+      "startOffset": 139,
+      "endOffset": 166
+    },
+    {
+      "document": "doc_028.txt",
+      "type": "IBAN",
+      "text": "GB35 WEST 9399 0916 9985 43",
+      "startOffset": 137,
+      "endOffset": 164
+    },
+    {
+      "document": "doc_046.txt",
+      "type": "IBAN",
+      "text": "DE77 2788 9579 8687 2774 34",
+      "startOffset": 137,
+      "endOffset": 164
+    },
+    {
+      "document": "doc_064.txt",
+      "type": "IBAN",
+      "text": "DE67 3135 1823 3749 8941 34",
+      "startOffset": 136,
+      "endOffset": 163
+    },
+    {
+      "document": "doc_072.txt",
+      "type": "INDIAN_AADHAAR",
+      "text": "2344 7134 9366",
+      "startOffset": 306,
+      "endOffset": 320
+    },
+    {
+      "document": "doc_082.txt",
+      "type": "IBAN",
+      "text": "DE84 5840 4499 7278 7558 86",
+      "startOffset": 137,
+      "endOffset": 164
+    },
+    {
+      "document": "doc_100.txt",
+      "type": "IBAN",
+      "text": "GB06 WEST 7139 0053 2931 83",
+      "startOffset": 138,
+      "endOffset": 165
+    },
+    {
+      "document": "doc_104.txt",
+      "type": "AUTH_TOKEN_KEY",
+      "text": "P@ssw0rd!Secure2026#",
+      "startOffset": 111,
+      "endOffset": 131
+    },
+    {
+      "document": "doc_108.txt",
+      "type": "PERSON_NAME",
+      "text": "Mary-Jane Watson",
+      "startOffset": 102,
+      "endOffset": 118
+    },
+    {
+      "document": "doc_118.txt",
+      "type": "IBAN",
+      "text": "DE04 2181 8835 5231 2432 92",
+      "startOffset": 137,
+      "endOffset": 164
+    },
+    {
+      "document": "doc_122.txt",
+      "type": "AUTH_TOKEN_KEY",
+      "text": "P@ssw0rd!Secure2026#",
+      "startOffset": 109,
+      "endOffset": 129
+    },
+    {
+      "document": "doc_144.txt",
+      "type": "PERSON_NAME",
+      "text": "Mary-Jane Watson",
+      "startOffset": 102,
+      "endOffset": 118
+    },
+    {
+      "document": "doc_154.txt",
+      "type": "IBAN",
+      "text": "DE61 2253 5841 4384 2498 18",
+      "startOffset": 136,
+      "endOffset": 163
+    },
+    {
+      "document": "doc_158.txt",
+      "type": "AUTH_TOKEN_KEY",
+      "text": "P@ssw0rd!Secure2026#",
+      "startOffset": 109,
+      "endOffset": 129
+    },
+    {
+      "document": "doc_172.txt",
+      "type": "IBAN",
+      "text": "GB25 WEST 8578 6527 8585 49",
+      "startOffset": 137,
+      "endOffset": 164
+    },
+    {
+      "document": "doc_180.txt",
+      "type": "INDIAN_AADHAAR",
+      "text": "7493 2966 8512",
+      "startOffset": 298,
+      "endOffset": 312
+    },
+    {
+      "document": "doc_198.txt",
+      "type": "INDIAN_AADHAAR",
+      "text": "5046 9901 3981",
+      "startOffset": 316,
+      "endOffset": 330
+    },
+    {
+      "document": "doc_216.txt",
+      "type": "PERSON_NAME",
+      "text": "Mary-Jane Watson",
+      "startOffset": 102,
+      "endOffset": 118
+    },
+    {
+      "document": "doc_226.txt",
+      "type": "IBAN",
+      "text": "GB04 WEST 7751 4010 5123 82",
+      "startOffset": 137,
+      "endOffset": 164
+    },
+    {
+      "document": "doc_230.txt",
+      "type": "AUTH_TOKEN_KEY",
+      "text": "P@ssw0rd!Secure2026#",
+      "startOffset": 111,
+      "endOffset": 131
+    },
+    {
+      "document": "doc_234.txt",
+      "type": "INDIAN_AADHAAR",
+      "text": "9422 5790 5079",
+      "startOffset": 302,
+      "endOffset": 316
+    },
+    {
+      "document": "doc_262.txt",
+      "type": "IBAN",
+      "text": "DE86 9493 7597 3832 0603 85",
+      "startOffset": 135,
+      "endOffset": 162
+    },
+    {
+      "document": "doc_266.txt",
+      "type": "AUTH_TOKEN_KEY",
+      "text": "P@ssw0rd!Secure2026#",
+      "startOffset": 110,
+      "endOffset": 130
+    },
+    {
+      "document": "doc_270.txt",
+      "type": "INDIAN_AADHAAR",
+      "text": "3124 9035 2137",
+      "startOffset": 301,
+      "endOffset": 315
+    },
+    {
+      "document": "doc_280.txt",
+      "type": "IBAN",
+      "text": "DE20 5905 9929 3784 2701 03",
+      "startOffset": 136,
+      "endOffset": 163
+    },
+    {
+      "document": "doc_298.txt",
+      "type": "IBAN",
+      "text": "DE58 6467 9970 2462 9960 65",
+      "startOffset": 137,
+      "endOffset": 164
+    },
+    {
+      "document": "doc_306.txt",
+      "type": "PERSON_NAME",
+      "text": "Mary-Jane Watson",
+      "startOffset": 102,
+      "endOffset": 118
+    },
+    {
+      "document": "doc_316.txt",
+      "type": "IBAN",
+      "text": "GB76 WEST 2235 6972 5217 52",
+      "startOffset": 138,
+      "endOffset": 165
+    },
+    {
+      "document": "doc_338.txt",
+      "type": "AUTH_TOKEN_KEY",
+      "text": "P@ssw0rd!Secure2026#",
+      "startOffset": 109,
+      "endOffset": 129
+    },
+    {
+      "document": "doc_342.txt",
+      "type": "INDIAN_AADHAAR",
+      "text": "7158 7996 8468",
+      "startOffset": 286,
+      "endOffset": 300
+    }
+  ]
+}
