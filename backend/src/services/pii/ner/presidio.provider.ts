@@ -20,6 +20,117 @@ interface PresidioAnalyzeResponse {
   entities?: PresidioEntityResponse[];
 }
 
+const PRODUCT_AND_BUSINESS_BLACKLIST = new Set([
+  'kindle paperwhite',
+  'amazon kindle',
+  'apple watch',
+  'apple watch ultra',
+  'ipad pro',
+  'iphone',
+  'macbook',
+  'corporate expense',
+  'delaware court',
+  'product manager',
+  'diagnostic equipment',
+  'income tax',
+  'total amount',
+  'swift network',
+  'terms and conditions',
+  'offer letter',
+  'employment offer',
+  'customer support',
+  'human resources',
+  'health insurance',
+  'code conduct',
+  'billing reference',
+  'quarterly review',
+  'customer success',
+  'full name',
+  'badge id',
+  'badge number',
+  'clinical intake',
+  'employee badge',
+  'patient clinical intake',
+  'mount everest expedition',
+]);
+
+const STREET_OR_LOCATION_SUFFIXES = /\b(?:Avenue|Ave|Road|Rd|Street|St|Lane|Ln|Boulevard|Blvd|Drive|Dr|Court|Ct|Salai|Nagar|Marg|Sector|Highway|Hwy|Circle|Place|Pl)\b/i;
+
+export function cleanAndValidatePersonName(
+  text: string,
+  start: number,
+  end: number,
+  fullText: string
+): { text: string; start: number; end: number } | null {
+  let candidateText = text;
+  let candidateStart = start;
+  let candidateEnd = end;
+
+  // 1. Reject if candidate contains email symbols or newlines
+  if (candidateText.includes('@') || candidateText.includes('.example') || candidateText.includes('.com')) {
+    return null;
+  }
+  if (/[\r\n]/.test(candidateText)) {
+    return null;
+  }
+
+  // 2. Reject if candidate is followed by email obfuscation tags like " [at] " or " (at) " or " @"
+  const following = fullText.slice(candidateEnd, candidateEnd + 15);
+  if (/^\s*(?:\[at\]|\(at\)|@)/i.test(following)) {
+    return null;
+  }
+
+  // 3. Reject if preceded by email label
+  const preceding = fullText.slice(Math.max(0, candidateStart - 30), candidateStart);
+  if (/(?:secondary\s+email|contact\s+email|applicant\s+email|email|e-mail)[:\s]+$/i.test(preceding)) {
+    return null;
+  }
+
+  // 4. Strip leading labels (e.g. "Contact ", "Signatory ", "Witness ")
+  const leadMatch = candidateText.match(/^(?:Contact|Direct Contact|Signatory|Witness|Reporting Manager|Employee|Applicant|Candidate|Client|Patient|Physician|Name|Full Name|Customer Name)[:\s-]+/i);
+  if (leadMatch) {
+    candidateStart += leadMatch[0].length;
+    candidateText = candidateText.slice(leadMatch[0].length);
+  }
+
+  // 5. Strip trailing verbs (e.g. " was", " is", " has", " joined")
+  const trailMatch = candidateText.match(/\s+(?:was|is|has|had|joined|resigned|reported|visited|received|contacted|called|scheduled|stated|confirmed)\b.*$/i);
+  if (trailMatch) {
+    candidateEnd -= trailMatch[0].length;
+    candidateText = candidateText.slice(0, candidateText.length - trailMatch[0].length);
+  }
+
+  // 6. Strip trailing punctuation
+  const punctMatch = candidateText.match(/[.,;:!?-]+$/);
+  if (punctMatch) {
+    candidateEnd -= punctMatch[0].length;
+    candidateText = candidateText.slice(0, candidateText.length - punctMatch[0].length);
+  }
+
+  candidateText = candidateText.trim();
+  if (candidateText.length < 2) {
+    return null;
+  }
+
+  const lower = candidateText.toLowerCase();
+
+  // 7. Reject known product / corporate terms
+  if (PRODUCT_AND_BUSINESS_BLACKLIST.has(lower)) {
+    return null;
+  }
+
+  // 8. Reject street/address names (e.g. "Oak Avenue", "Gandhi Road", "Anna Salai")
+  if (STREET_OR_LOCATION_SUFFIXES.test(candidateText)) {
+    return null;
+  }
+
+  return {
+    text: candidateText,
+    start: candidateStart,
+    end: candidateEnd,
+  };
+}
+
 export class PresidioNERProvider implements INERProvider {
   public readonly name = 'PresidioNERProvider';
   public readonly supportedTypes: PIIType[] = [
@@ -91,28 +202,50 @@ export class PresidioNERProvider implements INERProvider {
 
         const entityText = text.slice(item.start, item.end);
         if (item.type === 'PERSON') {
-          entities.push({
-            type: PIIType.PERSON_NAME,
-            text: entityText,
-            startOffset: item.start,
-            endOffset: item.end,
-            confidence: Math.min(1.0, Math.max(0.1, item.score)),
-          });
+          const validated = cleanAndValidatePersonName(entityText, item.start, item.end, text);
+          if (validated) {
+            entities.push({
+              type: PIIType.PERSON_NAME,
+              text: validated.text,
+              startOffset: validated.start,
+              endOffset: validated.end,
+              confidence: Math.min(1.0, Math.max(0.1, item.score)),
+            });
+          }
         } else if (item.type === 'LOCATION') {
-          entities.push({
-            type: PIIType.CITY,
-            text: entityText,
-            startOffset: item.start,
-            endOffset: item.end,
-            confidence: Math.min(1.0, Math.max(0.1, item.score)),
-          });
+          if (!/\b(?:expedition|headquarters|department|division|operations|center|station)\b/i.test(entityText)) {
+            entities.push({
+              type: PIIType.CITY,
+              text: entityText,
+              startOffset: item.start,
+              endOffset: item.end,
+              confidence: Math.min(1.0, Math.max(0.1, item.score)),
+            });
+          }
         }
       }
 
-      // Preserve non-PERSON extractions (e.g. DOB, Address) from fallback provider
-      // so recall does not drop before dedicated parsers are implemented in Phase 4
+      // Preserve non-PERSON extractions (e.g. DOB, Address) and high-confidence contextual
+      // names (e.g. ALL-CAPS names after labels like "Account Holder: CHETAN SHAH") from fallback
       const fallbackEntities = await this.fallbackProvider.extractEntities(text);
       const nonPersonFallbacks = fallbackEntities.filter((e) => e.type !== PIIType.PERSON_NAME);
+      const contextualPersonFallbacks = fallbackEntities.filter((e) => e.type === PIIType.PERSON_NAME && e.confidence >= 0.94);
+
+      for (const cp of contextualPersonFallbacks) {
+        const overlaps = entities.some((ex) => cp.startOffset < ex.endOffset && cp.endOffset > ex.startOffset);
+        if (!overlaps) {
+          const validated = cleanAndValidatePersonName(cp.text, cp.startOffset, cp.endOffset, text);
+          if (validated) {
+            entities.push({
+              type: PIIType.PERSON_NAME,
+              text: validated.text,
+              startOffset: validated.start,
+              endOffset: validated.end,
+              confidence: cp.confidence,
+            });
+          }
+        }
+      }
 
       return [...entities, ...nonPersonFallbacks];
     } catch (err: unknown) {

@@ -5,7 +5,7 @@ import { NormalizedDocumentModel } from '../../models/normalizedDocument.model';
 import { PIICandidateModel, IPIICandidate } from '../../models/piiCandidate.model';
 import { DetectionRunModel, IDetectionRun, DetectionRunStatus } from '../../models/detectionRun.model';
 import { initializeDefaultDetectors, RawDetectedCandidate } from './detectors';
-import { mergeCandidates } from './utils/candidateMerger.utils';
+import { mergeCandidates, suppressContainedPhoneCandidates } from './utils/candidateMerger.utils';
 import { AppError } from '../../utils/AppError';
 import { logAuthAuditEvent } from '../audit.service';
 import { logger } from '../../utils/logger';
@@ -200,8 +200,9 @@ export class PIIDetectionService {
         }
       }
 
-      // 6. Merge & Deduplicate Candidates
-      const mergedRawCandidates = mergeCandidates(rawCandidates);
+      // 6. Merge & Deduplicate Candidates and suppress overlapping phone candidates
+      const filteredCandidates = suppressContainedPhoneCandidates(rawCandidates);
+      const mergedRawCandidates = mergeCandidates(filteredCandidates);
 
       // 7. Map to Candidate Models (enforcing zero policy decisions: decision: null)
       const candidateDocs = mergedRawCandidates.map((cand) => ({

@@ -84,7 +84,29 @@ export class NationalIDDetector implements IPIIDetector {
 
     while ((match = this.SSN_REGEX.exec(text)) !== null) {
       const matchText = match[0];
+      const matchIndex = match.index;
+
+      // Ensure boundary: not embedded in longer alphanumeric token
+      if (matchIndex > 0 && /[a-zA-Z0-9]/.test(text[matchIndex - 1])) {
+        continue;
+      }
+      if (matchIndex + matchText.length < text.length && /[a-zA-Z0-9]/.test(text[matchIndex + matchText.length])) {
+        continue;
+      }
+
       if (!isValidUSSSN(matchText)) continue;
+
+      // Bare 9-digit numbers require explicit SSN/social-security context within ~40 chars
+      const isFormatted = /^\d{3}-\d{2}-\d{4}$/.test(matchText);
+      if (!isFormatted) {
+        const startIdx = Math.max(0, matchIndex - 40);
+        const endIdx = Math.min(text.length, matchIndex + matchText.length + 40);
+        const contextWindow = text.slice(startIdx, endIdx);
+        const hasSSNContext = /\b(?:ssn|social\s+security|social\s+sec|taxpayer\s+id|tin)\b/i.test(contextWindow);
+        if (!hasSSNContext) {
+          continue;
+        }
+      }
 
       const relativeStart = match.index;
       const relativeEnd = relativeStart + matchText.length;
@@ -154,10 +176,42 @@ export class NationalIDDetector implements IPIIDetector {
 
     while ((match = this.AADHAAR_REGEX.exec(text)) !== null) {
       const matchText = match[0];
+      const matchIndex = match.index;
+
+      // Ensure boundary: not embedded in longer alphanumeric token
+      if (matchIndex > 0 && /[a-zA-Z0-9]/.test(text[matchIndex - 1])) {
+        continue;
+      }
+      if (matchIndex + matchText.length < text.length && /[a-zA-Z0-9]/.test(text[matchIndex + matchText.length])) {
+        continue;
+      }
+
+      // Guard against slices of 16-digit credit cards or longer blocks
+      const afterMatch = text.slice(matchIndex + matchText.length, matchIndex + matchText.length + 6);
+      if (/^\s+\d{4}\b/.test(afterMatch)) {
+        continue;
+      }
+      const beforeMatch = text.slice(Math.max(0, matchIndex - 6), matchIndex);
+      if (/\b\d{4}\s+$/.test(beforeMatch)) {
+        continue;
+      }
+
       const digitsOnly = matchText.replace(/\D/g, '');
 
       if (digitsOnly.length !== 12 || !isValidVerhoeff(digitsOnly)) {
         continue;
+      }
+
+      // 12-digit unseparated Aadhaar requires explicit Aadhaar context within ~40 chars
+      const isSeparated = /^\d{4}[-\s]\d{4}[-\s]\d{4}$/.test(matchText);
+      if (!isSeparated) {
+        const startIdx = Math.max(0, matchIndex - 40);
+        const endIdx = Math.min(text.length, matchIndex + matchText.length + 40);
+        const contextWindow = text.slice(startIdx, endIdx);
+        const hasAadhaarContext = /\b(?:aadhaar|aadhar|uidai|uid\b|adhaar|adhar)\b/i.test(contextWindow);
+        if (!hasAadhaarContext) {
+          continue;
+        }
       }
 
       const relativeStart = match.index;

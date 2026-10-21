@@ -1,13 +1,70 @@
 import { RawDetectedCandidate } from '../detectors/detector.interface';
+import { PIIType } from '../../../config/piiTaxonomy';
+
+const STRONGER_IDENTIFIER_TYPES = new Set([
+  PIIType.CREDIT_CARD_NUMBER,
+  PIIType.IBAN,
+  PIIType.US_SSN,
+  PIIType.INDIAN_AADHAAR,
+  PIIType.INDIAN_PAN,
+]);
+
+/**
+ * Suppresses PHONE_NUMBER candidates that are fully contained within or heavily
+ * overlap with stronger deterministic candidates (Credit Card, IBAN, SSN, Aadhaar, PAN).
+ * Standalone phone numbers remain preserved.
+ */
+export function suppressContainedPhoneCandidates(
+  candidates: RawDetectedCandidate[]
+): RawDetectedCandidate[] {
+  if (candidates.length <= 1) return candidates;
+
+  const strongerCandidates = candidates.filter((c) => STRONGER_IDENTIFIER_TYPES.has(c.type));
+  if (strongerCandidates.length === 0) {
+    return candidates;
+  }
+
+  return candidates.filter((cand) => {
+    if (cand.type !== PIIType.PHONE_NUMBER) {
+      return true;
+    }
+
+    for (const stronger of strongerCandidates) {
+      // Contained within stronger candidate's span (with 2 char whitespace tolerance)
+      const isContained =
+        cand.startOffset >= stronger.startOffset - 2 &&
+        cand.endOffset <= stronger.endOffset + 2;
+
+      if (isContained) {
+        return false;
+      }
+
+      // Or significant fractional overlap (>= 70% of phone candidate is covered by stronger candidate)
+      const overlapStart = Math.max(cand.startOffset, stronger.startOffset);
+      const overlapEnd = Math.min(cand.endOffset, stronger.endOffset);
+      const overlapLen = Math.max(0, overlapEnd - overlapStart);
+      const phoneLen = Math.max(1, cand.endOffset - cand.startOffset);
+
+      if (overlapLen / phoneLen >= 0.7) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
 
 export function mergeCandidates(
   candidates: RawDetectedCandidate[]
 ): RawDetectedCandidate[] {
   if (candidates.length <= 1) return candidates;
 
+  // Suppress overlapping phone candidates contained within stronger identifiers
+  const preFiltered = suppressContainedPhoneCandidates(candidates);
+
   // Group candidates by blockId
   const blockGroups = new Map<string, RawDetectedCandidate[]>();
-  for (const cand of candidates) {
+  for (const cand of preFiltered) {
     const key = cand.blockId || 'FULL_TEXT';
     if (!blockGroups.has(key)) {
       blockGroups.set(key, []);

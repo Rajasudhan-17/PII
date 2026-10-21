@@ -12,7 +12,8 @@ export class HeuristicNERProvider implements INERProvider {
   ];
 
   private PERSON_REGEX = /\b(?:Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.)[^\S\r\n]+[A-Z][a-z]+(?:[^\S\r\n]+[A-Z][a-z]+){1,2}\b|\b[A-Z][a-z]+[^\S\r\n]+[A-Z][a-z]+\b/g;
-  private CONTEXTUAL_PERSON_REGEX = /(?:Dear|Sincerely|Regards|(?:Full\s+)?Name|Patient(?:\s+Name)?|Physician|Doctor|Candidate|Applicant|Employee|Client|Reporting Manager|Authorized Representative)[:=-]?[^\S\r\n]+([A-Z][a-z]+(?:[^\S\r\n]+[A-Z][a-z]+){1,2})\b/gi;
+  private CONTEXTUAL_PERSON_REGEX =
+    /(?:(?:Dear|Sincerely|Regards)\s+|(?:Candidate|Employee|Applicant|Patient|Client|Signatory|Witness|Doctor)?\s*(?:Full\s+)?(?:Name|Account\s+Holder|Reported\s+By|Physician|Doctor|Reporting\s+Manager|Authorized\s+Representative)\s*[:=-]\s*)([a-zA-Z]+(?:[^\S\r\n]+[a-zA-Z]+){1,2})\b/gi;
   private DOB_REGEX = /\b(?:DOB|Date of Birth|Born|Birthdate)[:\s]+(?:\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\b/gi;
   private ADDRESS_REGEX = /\b\d{1,5}\s+(?:[A-Z][a-zA-Z0-9#.\s]{2,30})\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct)\b/gi;
   private CITY_REGEX = /\b(?:New York|San Francisco|Los Angeles|Chicago|Houston|London|Paris|Tokyo|Berlin|Toronto|Mumbai|Delhi|Bangalore)\b/g;
