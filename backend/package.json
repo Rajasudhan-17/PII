@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Phase 01 & Phase 02 Backend Foundation with Authentication and Authorization for PII Intelligent Platform",
   "main": "dist/server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
