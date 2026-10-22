@@ -47,6 +47,17 @@ export const createApp = (): Express => {
   // Request ID middleware
   app.use(requestIdMiddleware);
 
+  // Root endpoint for platform status & Render liveness probing
+  app.get('/', (_req, res) => {
+    res.status(200).json({
+      name: 'PII Intelligent Platform API',
+      status: 'online',
+      version: '1.0.0',
+      health: '/api/v1/health',
+      docs: '/api/v1/health/readiness',
+    });
+  });
+
   // Mount API & Health routes
   app.use('/health', routes); // Top-level health check endpoint
   app.use(config.API_PREFIX, routes); // API-prefixed routes (e.g. /api/v1/auth/login)
