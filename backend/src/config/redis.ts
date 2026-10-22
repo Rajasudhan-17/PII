@@ -16,6 +16,7 @@ export const getRedisConnectionOptions = (customUrl?: string): RedisOptions => {
   let password: string | undefined = undefined;
   let username: string | undefined = undefined;
   let db = 0;
+  const isTls = url.startsWith('rediss://');
 
   try {
     const parsed = new URL(url);
@@ -36,11 +37,12 @@ export const getRedisConnectionOptions = (customUrl?: string): RedisOptions => {
     username,
     password,
     db,
+    ...(isTls ? { tls: {} } : {}),
     maxRetriesPerRequest: null, // Required by BullMQ
-    connectTimeout: 2000,
+    connectTimeout: 5000,
     enableReadyCheck: false,
     retryStrategy(times) {
-      if (times > 2) {
+      if (times > 3) {
         return null;
       }
       return 200;
