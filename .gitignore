@@ -19,14 +19,16 @@ build/
 **/.env.production
 
 # Local Runtime Storage & Processing Outputs
+/storage/
+/sanitized/
+/transformed/
+/scratch/
 backend/storage/
 backend/sanitized/
 backend/transformed/
 backend/scratch/
-storage/
-sanitized/
-transformed/
-scratch/
+!backend/src/services/storage/
+!backend/src/services/storage/**
 
 # Logs & Debugging
 *.log
