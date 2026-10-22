@@ -16,8 +16,6 @@ export const getRedisConnectionOptions = (customUrl?: string): RedisOptions => {
   let password: string | undefined = undefined;
   let username: string | undefined = undefined;
   let db = 0;
-  const isTls = url.startsWith('rediss://');
-
   try {
     const parsed = new URL(url);
     host = parsed.hostname || '127.0.0.1';
@@ -31,21 +29,29 @@ export const getRedisConnectionOptions = (customUrl?: string): RedisOptions => {
     // Fallback if URL parsing fails
   }
 
+  // Auto-detect TLS for rediss:// protocol or cloud providers requiring TLS (Upstash, Redis Cloud, Azure, etc.)
+  const isTls =
+    url.startsWith('rediss://') ||
+    host.includes('upstash.io') ||
+    host.includes('redislabs.com') ||
+    host.includes('redis.cache.windows.net') ||
+    process.env.REDIS_TLS === 'true';
+
   return {
     host,
     port,
     username,
     password,
     db,
-    ...(isTls ? { tls: {} } : {}),
+    ...(isTls ? { tls: { servername: host } } : {}),
     maxRetriesPerRequest: null, // Required by BullMQ
-    connectTimeout: 5000,
+    connectTimeout: 10000,
     enableReadyCheck: false,
     retryStrategy(times) {
-      if (times > 3) {
+      if (times > 5) {
         return null;
       }
-      return 200;
+      return Math.min(times * 200, 2000);
     },
   };
 };
